@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { getDoc, setDoc, doc } from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { auth } from "./firebase";
 import Login from "./components/Login";
 import Dashboard from "./components/Dashboard";
 
@@ -36,38 +35,12 @@ const GLOBAL_STYLE = `
 export default function App() {
   const [user,     setUser]     = useState(null);
   const [checking, setChecking] = useState(true);
-  const [userRole, setUserRole] = useState(null);
 
   useEffect(() => {
     const style = document.createElement("style");
     style.textContent = GLOBAL_STYLE;
     document.head.appendChild(style);
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        try {
-          const snap = await getDoc(doc(db, "users", u.uid));
-          if (snap.exists()) {
-            setUserRole(snap.data().role || "admin1");
-          } else {
-            // Bootstrap: first user gets admin1
-            await setDoc(doc(db, "users", u.uid), {
-              email: u.email,
-              name: u.displayName || u.email.split("@")[0],
-              role: "admin1",
-              createdAt: new Date().toISOString(),
-              createdBy: "system",
-            });
-            setUserRole("admin1");
-          }
-        } catch {
-          setUserRole("admin1");
-        }
-      } else {
-        setUserRole(null);
-      }
-      setChecking(false);
-    });
+    const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setChecking(false); });
     return unsub;
   }, []);
 
@@ -83,13 +56,5 @@ export default function App() {
   );
 
   if (!user) return <Login />;
-  if (userRole === null) return (
-    <div style={{minHeight:"100vh",background:"#3D1445",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:24}}>
-      <div style={{fontSize:48,marginBottom:16}}>🔒</div>
-      <div style={{fontSize:20,fontWeight:700,color:"#fff",marginBottom:8}}>Access Denied</div>
-      <div style={{fontSize:14,color:"rgba(255,255,255,.55)",textAlign:"center",maxWidth:300,marginBottom:24}}>Your account has not been granted access to this system. Contact the administrator.</div>
-      <button onClick={()=>{ import("firebase/auth").then(m=>m.signOut(auth)); }} style={{background:"rgba(244,63,94,.2)",color:"#f87171",border:"1px solid rgba(244,63,94,.3)",borderRadius:10,padding:"11px 24px",cursor:"pointer",fontSize:14,fontWeight:600}}>Sign Out</button>
-    </div>
-  );
-  return <Dashboard user={user} userRole={userRole} />;
+  return <Dashboard user={user} />;
 }
