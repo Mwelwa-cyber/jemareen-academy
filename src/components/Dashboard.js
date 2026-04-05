@@ -7,14 +7,14 @@ import PettyCash from "./PettyCash";
 import { LOGO } from "../App";
 import {
   collection, addDoc, updateDoc, deleteDoc, setDoc,
-  doc, onSnapshot, query, orderBy, serverTimestamp
+  doc, onSnapshot, query, orderBy, serverTimestamp, limit
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import {
   IconDashboard, IconPayments, IconLearners, IconBell, IconChart,
   IconFees, IconFinance, IconChat, IconCalendar, IconWallet,
   IconHome, IconMenu, IconX, IconBolt, IconWarning, IconCheck,
-  IconSchool,
+  IconSchool, IconList, IconUsers, IconShield, IconUserPlus,
 } from "./Icons";
 
 const GRADES = ["Baby Class","Reception","Grade 1","Grade 2","Grade 3","Grade 4","Grade 5","Grade 6","Grade 7"];
@@ -55,9 +55,11 @@ const NAV = [
   {id:"whatsapp",  icon:<IconChat      size={18}/>, label:"WhatsApp"},
   {id:"annual",    icon:<IconCalendar  size={18}/>, label:"Annual"},
   {id:"pettycash", icon:<IconWallet    size={18}/>, label:"Petty Cash"},
+  {id:"audit",     icon:<IconList      size={18}/>, label:"Audit Log"},
+  {id:"users",     icon:<IconUsers     size={18}/>, label:"Users"},
 ];
 
-export default function Dashboard({ user }) {
+export default function Dashboard({ user, userRole = "admin1" }) {
   const [activeTab, setActiveTab]       = useState("dashboard");
   const [activeTerm, setActiveTerm]     = useState("Term 1 2026");
   const [learners, setLearners]         = useState([]);
@@ -78,6 +80,22 @@ export default function Dashboard({ user }) {
   const [aiInsight, setAiInsight]           = useState(null);
   const [aiLoading, setAiLoading]           = useState(false);
   const [delConfirm, setDelConfirm]         = useState(null);
+
+  const [isOnline, setIsOnline]           = useState(navigator.onLine);
+  const [pendingPayments, setPendingPayments] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("jemareen_pending") || "[]"); } catch { return []; }
+  });
+  const [syncingOffline, setSyncingOffline] = useState(false);
+  const [auditLogs, setAuditLogs]         = useState([]);
+  const [showHistory, setShowHistory]     = useState(null);   // learner object
+  const [delPayConfirm, setDelPayConfirm] = useState(null);   // payment object to delete
+
+  // New state variables
+  const [expandedGrades, setExpandedGrades] = useState(() => new Set([...GRADES, ...GRADES.map(g=>g+"_l")]));
+  const toggleGrade = (g) => setExpandedGrades(prev => { const s=new Set(prev); s.has(g)?s.delete(g):s.add(g); return s; });
+  const [editLearner, setEditLearner] = useState(null);
+  const [editLearnerVals, setEditLearnerVals] = useState({});
+  const [learnerSearch, setLearnerSearch] = useState("");
 
   // Form state
   const [newLearner, setNewLearner] = useState({name:"",grade:"Baby Class",parent:"",phone:"",email:""});
@@ -103,7 +121,21 @@ export default function Dashboard({ user }) {
     const unsubFees = onSnapshot(doc(db,"settings","fees"), (snap) => {
       if (snap.exists()) setFees({...DEFAULT_FEES, ...snap.data()});
     });
-    return () => { unsubLearners(); unsubPayments(); unsubFees(); };
+    const unsubAudit = onSnapshot(
+      query(collection(db,"auditLogs"), orderBy("timestamp","desc"), limit(150)),
+      snap => setAuditLogs(snap.docs.map(d => ({id:d.id, ...d.data()})))
+    );
+    return () => { unsubLearners(); unsubPayments(); unsubFees(); unsubAudit(); };
+  }, []);
+
+  // ── ONLINE / OFFLINE ────────────────────────────────────────────────────
+  useEffect(() => {
+    const goOnline  = () => { setIsOnline(true);  syncOfflinePayments(); };
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online",  goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── ENRICHED DATA ──────────────────────────────────────────────────────
@@ -121,8 +153,10 @@ export default function Dashboard({ user }) {
       const prevFee = fees[learner.grade] || 0;
       const arrears = prevTerm ? Math.max(0, prevFee - prevPaid) : 0;
       const balance = Math.max(0, fee + arrears - totalPaid);
+      // Cap displayed paid at what was actually owed — prevents showing paid > fee
+      const paidDisplay = Math.min(totalPaid, fee + arrears);
       const status = getStatus(totalPaid, fee, arrears);
-      return { ...learner, fee, totalPaid, arrears, balance, status, lastPayment, termPayments };
+      return { ...learner, fee, totalPaid, paidDisplay, arrears, balance, status, lastPayment, termPayments };
     });
   }, [learners, payments, fees, activeTerm]);
 
@@ -130,7 +164,7 @@ export default function Dashboard({ user }) {
 
   const stats = useMemo(() => {
     const expected   = termData.reduce((a,l) => a + l.fee + l.arrears, 0);
-    const collected  = termData.reduce((a,l) => a + l.totalPaid, 0);
+    const collected  = termData.reduce((a,l) => a + l.paidDisplay, 0);
     const outstanding= termData.reduce((a,l) => a + l.balance, 0);
     const arrears    = termData.reduce((a,l) => a + l.arrears, 0);
     return {
@@ -156,10 +190,37 @@ export default function Dashboard({ user }) {
 
   const gradeBreakdown = useMemo(() => GRADES.map(grade => {
     const gl = termData.filter(l => l.grade === grade);
-    const collected = gl.reduce((a,l)=>a+l.totalPaid,0);
+    const collected = gl.reduce((a,l)=>a+l.paidDisplay,0);
     const expected  = gl.reduce((a,l)=>a+l.fee+l.arrears,0);
     return { grade, total:gl.length, paid:gl.filter(l=>l.status==="paid").length, collected, expected, rate: expected>0?Math.round(collected/expected*100):0 };
   }), [termData]);
+
+  const groupedByGrade = useMemo(() =>
+    GRADES.map(grade => ({
+      grade,
+      learners: filtered.filter(l => l.grade === grade),
+      stats: (() => {
+        const gl = filtered.filter(l => l.grade === grade);
+        const collected = gl.reduce((a,l)=>a+l.paidDisplay,0);
+        const expected = gl.reduce((a,l)=>a+l.fee+l.arrears,0);
+        return { total: gl.length, paid: gl.filter(l=>l.status==="paid").length, collected, expected, rate: expected>0?Math.round(collected/expected*100):0 };
+      })()
+    })).filter(g => g.learners.length > 0),
+  [filtered]);
+
+  const filteredLearners = useMemo(() => {
+    let rows = enriched;
+    if (gradeFilter !== "All Grades") rows = rows.filter(l => l.grade === gradeFilter);
+    if (learnerSearch) rows = rows.filter(l => l.name?.toLowerCase().includes(learnerSearch.toLowerCase()) || l.parent?.toLowerCase().includes(learnerSearch.toLowerCase()));
+    return rows;
+  }, [enriched, gradeFilter, learnerSearch]);
+
+  const groupedLearners = useMemo(() =>
+    GRADES.map(grade => ({
+      grade,
+      learners: filteredLearners.filter(l => l.grade === grade)
+    })).filter(g => g.learners.length > 0),
+  [filteredLearners]);
 
   // ── FIREBASE ACTIONS ───────────────────────────────────────────────────
   const handleAddLearner = async () => {
@@ -175,12 +236,15 @@ export default function Dashboard({ user }) {
       setShowAddLearner(false);
       setNewLearner({name:"",grade:"Baby Class",parent:"",phone:"",email:""});
       showToast(`${newLearner.name} added successfully!`);
+      await audit("LEARNER_ADDED", { name: newLearner.name, grade: newLearner.grade });
     } catch { showToast("Failed to add learner.", "err"); }
   };
 
   const handleDeleteLearner = async (id) => {
+    const target = learners.find(l=>l.id===id);
     try {
       await deleteDoc(doc(db,"learners",id));
+      await audit("LEARNER_DELETED", { name: target?.name||id, grade: target?.grade||"" });
       setDelConfirm(null);
       showToast("Learner removed.");
     } catch { showToast("Could not delete.", "err"); }
@@ -191,19 +255,31 @@ export default function Dashboard({ user }) {
       showToast("Select a learner and enter amount.", "err"); return;
     }
     const learner = learners.find(l => l.id === newPayment.learnerId);
+    const paymentData = {
+      learnerId:   newPayment.learnerId,
+      learnerName: learner?.name || "",
+      grade:       learner?.grade || "",
+      term:        activeTerm,
+      amount:      parseFloat(newPayment.amount),
+      method:      newPayment.method,
+      date:        newPayment.date,
+      notes:       newPayment.notes,
+      recordedBy:  user.email,
+    };
+    if (!isOnline) {
+      const pending = JSON.parse(localStorage.getItem("jemareen_pending") || "[]");
+      const entry = { ...paymentData, _offlineId: Date.now().toString(), createdAt: new Date().toISOString() };
+      pending.push(entry);
+      localStorage.setItem("jemareen_pending", JSON.stringify(pending));
+      setPendingPayments(pending);
+      setShowAddPayment(false);
+      setNewPayment({learnerId:"",amount:"",method:"Mobile Money",date:new Date().toISOString().split("T")[0],notes:""});
+      showToast("Saved offline — will sync when connected.");
+      return;
+    }
     try {
-      await addDoc(collection(db,"payments"), {
-        learnerId:  newPayment.learnerId,
-        learnerName: learner?.name || "",
-        grade:       learner?.grade || "",
-        term:        activeTerm,
-        amount:      parseFloat(newPayment.amount),
-        method:      newPayment.method,
-        date:        newPayment.date,
-        notes:       newPayment.notes,
-        recordedBy:  user.email,
-        createdAt:   serverTimestamp(),
-      });
+      await addDoc(collection(db,"payments"), { ...paymentData, createdAt: serverTimestamp() });
+      await audit("PAYMENT_ADDED", { learnerName: paymentData.learnerName, amount: paymentData.amount, grade: paymentData.grade, method: paymentData.method });
       setShowAddPayment(false);
       setNewPayment({learnerId:"",amount:"",method:"Mobile Money",date:new Date().toISOString().split("T")[0],notes:""});
       showToast("Payment recorded!");
@@ -222,7 +298,18 @@ export default function Dashboard({ user }) {
       setShowEditFees(false);
       setEditFeeVals({});
       showToast("Fee structure saved!");
+      await audit("FEES_UPDATED", { fees: merged });
     } catch { showToast("Failed to save fees.", "err"); }
+  };
+
+  const handleEditLearner = async () => {
+    if (!editLearnerVals.name || !editLearnerVals.phone) { showToast("Name and phone required.","err"); return; }
+    try {
+      await updateDoc(doc(db,"learners",editLearner.id), editLearnerVals);
+      setEditLearner(null); setEditLearnerVals({});
+      showToast("Learner updated!");
+      await audit("LEARNER_EDITED", { name: editLearner.name, changes: editLearnerVals });
+    } catch { showToast("Failed to update.","err"); }
   };
 
   const handleSendReminder = (learnerId) => {
@@ -235,6 +322,98 @@ export default function Dashboard({ user }) {
     const targets = filtered.filter(l => l.status !== "paid" && !remindersSent.includes(l.id+activeTerm));
     targets.forEach(l => setRemindersSent(prev=>[...prev, l.id+activeTerm]));
     showToast(`${targets.length} reminders sent!`);
+  };
+
+  // ── AUDIT HELPER ────────────────────────────────────────────────────────
+  const audit = async (action, details) => {
+    try {
+      await addDoc(collection(db,"auditLogs"), {
+        action, details,
+        performedBy: user?.email || "unknown",
+        term: activeTerm,
+        timestamp: serverTimestamp(),
+      });
+    } catch {}
+  };
+
+  // ── OFFLINE SYNC ────────────────────────────────────────────────────────
+  const syncOfflinePayments = async () => {
+    const pending = JSON.parse(localStorage.getItem("jemareen_pending") || "[]");
+    if (!pending.length) return;
+    setSyncingOffline(true);
+    let synced = 0;
+    for (const p of pending) {
+      try {
+        const { _offlineId, ...data } = p;
+        await addDoc(collection(db,"payments"), { ...data, createdAt: serverTimestamp(), syncedFromOffline: true });
+        await audit("PAYMENT_SYNCED_OFFLINE", { learnerName: p.learnerName, amount: p.amount, grade: p.grade });
+        synced++;
+      } catch {}
+    }
+    localStorage.removeItem("jemareen_pending");
+    setPendingPayments([]);
+    setSyncingOffline(false);
+    if (synced) showToast(`${synced} offline payment${synced>1?"s":""} synced!`);
+  };
+
+  // ── DELETE PAYMENT ───────────────────────────────────────────────────────
+  const handleDeletePayment = async (paymentId, paymentData) => {
+    try {
+      await deleteDoc(doc(db,"payments",paymentId));
+      await audit("PAYMENT_DELETED", { learnerName: paymentData.learnerName, amount: paymentData.amount, term: paymentData.term });
+      setDelPayConfirm(null);
+      showToast("Payment removed.");
+    } catch { showToast("Could not delete payment.","err"); }
+  };
+
+  // ── USER MANAGEMENT ────────────────────────────────────────────────────
+  const API_KEY = "AIzaSyBzvvey5zMXdm8DPaOo0lI5OUyU6MqXta0";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!isAdmin1) return;
+    const unsub = onSnapshot(collection(db,"users"), snap =>
+      setAppUsers(snap.docs.map(d => ({id:d.id, ...d.data()})))
+    );
+    return unsub;
+  }, []); // eslint-disable-line
+
+  const handleCreateUser = async () => {
+    if (!newUser.name || !newUser.email || !newUser.password) { showToast("Fill in all fields.", "err"); return; }
+    if (newUser.password.length < 6) { showToast("Password must be 6+ characters.", "err"); return; }
+    try {
+      const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({email:newUser.email, password:newUser.password, returnSecureToken:true})
+      });
+      const data = await res.json();
+      if (data.error) { showToast(data.error.message || "Failed to create account.", "err"); return; }
+      await setDoc(doc(db,"users",data.localId), {
+        email: newUser.email, name: newUser.name, role: newUser.role,
+        createdAt: serverTimestamp(), createdBy: user.email,
+      });
+      await audit("USER_CREATED", {name:newUser.name, email:newUser.email, role:newUser.role});
+      setShowAddUser(false);
+      setNewUser({name:"",email:"",role:"admin2",password:""});
+      showToast(`${newUser.name} added as ${newUser.role==="admin1"?"Admin 1":"Admin 2"}.`);
+    } catch { showToast("Failed to create user.", "err"); }
+  };
+
+  const handleUpdateUserRole = async (userId, newRole) => {
+    try {
+      await updateDoc(doc(db,"users",userId), {role: newRole});
+      await audit("USER_ROLE_CHANGED", {userId, newRole});
+      showToast("Role updated.");
+    } catch { showToast("Failed to update role.", "err"); }
+  };
+
+  const handleRemoveUser = async (targetUserId) => {
+    if (targetUserId === user.uid) { showToast("Cannot remove yourself.", "err"); return; }
+    try {
+      await deleteDoc(doc(db,"users",targetUserId));
+      await audit("USER_REMOVED", {userId: targetUserId});
+      setDelUserConfirm(null);
+      showToast("User removed.");
+    } catch { showToast("Failed to remove user.", "err"); }
   };
 
   const generateAIInsight = async () => {
@@ -267,6 +446,15 @@ export default function Dashboard({ user }) {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const isAdmin1 = userRole === "admin1";
+  const ALLOWED_ADMIN2 = ["dashboard","finance","pettycash"];
+  const visibleNAV = isAdmin1 ? NAV : NAV.filter(n => ALLOWED_ADMIN2.includes(n.id));
+
+  const [appUsers, setAppUsers]             = useState([]);
+  const [showAddUser, setShowAddUser]       = useState(false);
+  const [newUser, setNewUser]               = useState({name:"",email:"",role:"admin2",password:""});
+  const [delUserConfirm, setDelUserConfirm] = useState(null);
+
   if (loading) return (
     <div style={{minHeight:"100vh",background:"#F7F3FA",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Outfit',sans-serif"}}>
       <style>{`@keyframes _ldspin{to{transform:rotate(360deg)}}`}</style>
@@ -277,16 +465,20 @@ export default function Dashboard({ user }) {
     </div>
   );
 
-  const BOTTOM_NAV = [
+  const BOTTOM_NAV = isAdmin1 ? [
     {id:"dashboard",icon:<IconHome      size={22}/>,label:"Home"},
     {id:"payments", icon:<IconPayments  size={22}/>,label:"Pay"},
     {id:"learners", icon:<IconLearners  size={22}/>,label:"Learners"},
     {id:"whatsapp", icon:<IconChat      size={22}/>,label:"WhatsApp"},
     {id:"more",     icon:<IconMenu      size={22}/>,label:"More"},
+  ] : [
+    {id:"dashboard",icon:<IconHome      size={22}/>,label:"Home"},
+    {id:"finance",  icon:<IconFinance   size={22}/>,label:"Finance"},
+    {id:"pettycash",icon:<IconWallet    size={22}/>,label:"Petty Cash"},
   ];
 
   return (
-    <div style={{fontFamily:"'Outfit',sans-serif",minHeight:"100vh",background:"#FAF7FD",color:"#1e293b"}}>
+    <div style={{fontFamily:"'Outfit',sans-serif",minHeight:"100vh",background:"#FAF7FD",color:"#1e293b",paddingTop: (!isOnline || pendingPayments.length>0) ? 36 : 0}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;0,800;1,500&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
@@ -335,6 +527,16 @@ export default function Dashboard({ user }) {
         .d-aside{display:none;position:fixed;top:0;left:0;height:100vh;width:224px;background:linear-gradient(180deg,#22073A 0%,#3D1445 45%,#2d0e3d 100%);border-right:none;flex-direction:column;padding:0;z-index:50;overflow-y:auto;box-shadow:4px 0 28px rgba(0,0,0,.22);}
       `}</style>
 
+      {/* OFFLINE / SYNC BANNER */}
+      {(!isOnline || syncingOffline || pendingPayments.length>0) && (
+        <div style={{position:"fixed",top:0,left:0,right:0,zIndex:999,background:syncingOffline?"#7B2D8B":isOnline&&pendingPayments.length>0?"#f59e0b":"#374151",color:"#fff",fontSize:12,fontWeight:600,textAlign:"center",padding:"8px 16px",letterSpacing:".03em"}}>
+          {syncingOffline ? "⟳ Syncing offline payments…" : !isOnline ? `Offline mode — ${pendingPayments.length} payment${pendingPayments.length!==1?"s":""} queued` : `${pendingPayments.length} pending payment${pendingPayments.length!==1?"s":""} — tap to sync`}
+          {isOnline && pendingPayments.length>0 && !syncingOffline && (
+            <button onClick={syncOfflinePayments} style={{marginLeft:10,background:"rgba(255,255,255,.2)",border:"none",borderRadius:6,color:"#fff",fontSize:11,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>Sync Now</button>
+          )}
+        </div>
+      )}
+
       {/* DESKTOP SIDEBAR */}
       <aside className="d-aside">
         <div style={{padding:"20px 16px 16px",borderBottom:"1px solid rgba(255,255,255,.07)",background:"rgba(0,0,0,.12)"}}>
@@ -357,7 +559,7 @@ export default function Dashboard({ user }) {
         </div>
         <div style={{height:1,background:"rgba(255,255,255,.06)",margin:"0 16px"}}/>
         <div style={{padding:"6px 10px",flex:1,overflowY:"auto"}}>
-          {NAV.map(n=>(
+          {visibleNAV.map(n=>(
             <button key={n.id} className="nb" onClick={()=>setActiveTab(n.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 10px",borderRadius:10,marginBottom:2,color:activeTab===n.id?"#D4A820":"rgba(255,255,255,.55)",background:activeTab===n.id?"rgba(212,168,32,.08)":"none",fontSize:13,fontWeight:activeTab===n.id?700:400,borderLeft:activeTab===n.id?"3px solid #D4A820":"3px solid transparent"}}>
               <span>{n.icon}</span>{n.label}
             </button>
@@ -365,7 +567,8 @@ export default function Dashboard({ user }) {
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid rgba(255,255,255,.08)"}}>
           <div style={{fontSize:10,color:"rgba(255,255,255,.3)",marginBottom:2}}>Signed in as</div>
-          <div style={{fontSize:11,fontWeight:600,color:"rgba(255,255,255,.6)",marginBottom:10,wordBreak:"break-all"}}>{user?.email}</div>
+          <div style={{fontSize:11,fontWeight:600,color:"rgba(255,255,255,.6)",marginBottom:5,wordBreak:"break-all"}}>{user?.email}</div>
+          <div style={{fontSize:10,color:isAdmin1?"#D4A820":"#60a5fa",fontWeight:700,marginBottom:10,letterSpacing:".04em",display:"flex",alignItems:"center",gap:5}}><IconShield size={11}/>{isAdmin1?"Admin 1 — Full Access":"Admin 2 — Finance Only"}</div>
           <button className="btn" onClick={handleLogout} style={{background:"rgba(244,63,94,.15)",color:"#f87171",width:"100%",fontSize:12,padding:"9px",border:"1px solid rgba(244,63,94,.2)"}}>Sign Out</button>
         </div>
       </aside>
@@ -392,7 +595,7 @@ export default function Dashboard({ user }) {
             ))}
           </div>
           <div style={{flex:1,overflowY:"auto",padding:"8px 10px"}}>
-            {NAV.map(n=>(
+            {visibleNAV.map(n=>(
               <button key={n.id} className="nb" onClick={()=>{setActiveTab(n.id);setSidebarOpen(false);}} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 12px",borderRadius:12,marginBottom:3,color:activeTab===n.id?"#D4A820":"rgba(255,255,255,.6)",background:activeTab===n.id?"rgba(212,168,32,.08)":"none",fontSize:15,fontWeight:activeTab===n.id?700:400,borderLeft:activeTab===n.id?"3px solid #D4A820":"3px solid transparent"}}>
                 <span style={{fontSize:20}}>{n.icon}</span>{n.label}
               </button>
@@ -415,10 +618,11 @@ export default function Dashboard({ user }) {
             <div style={{fontSize:10,color:"#94a3b8"}}>{activeTerm}</div>
           </div>
         </div>
-        {activeTab==="learners"  && <button className="btn" onClick={()=>setShowAddLearner(true)}  style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Add</button>}
-        {activeTab==="payments"  && <button className="btn" onClick={()=>setShowAddPayment(true)}  style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Pay</button>}
-        {activeTab==="reminders" && <button className="btn" onClick={handleBulkRemind}             style={{background:"#f59e0b",color:"#fff",padding:"9px 16px",fontSize:13,display:"flex",alignItems:"center",gap:6}}><IconBolt size={14}/>Send All</button>}
-        {activeTab==="fees"      && <button className="btn" onClick={()=>{setEditFeeVals({});setShowEditFees(true);}} style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>Edit</button>}
+        {activeTab==="learners"  && isAdmin1 && <button className="btn" onClick={()=>setShowAddLearner(true)}  style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Add</button>}
+        {activeTab==="payments"  && isAdmin1 && <button className="btn" onClick={()=>setShowAddPayment(true)}  style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Pay</button>}
+        {activeTab==="reminders" && isAdmin1 && <button className="btn" onClick={handleBulkRemind}             style={{background:"#f59e0b",color:"#fff",padding:"9px 16px",fontSize:13,display:"flex",alignItems:"center",gap:6}}><IconBolt size={14}/>Send All</button>}
+        {activeTab==="fees"      && isAdmin1 && <button className="btn" onClick={()=>{setEditFeeVals({});setShowEditFees(true);}} style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>Edit</button>}
+        {activeTab==="users"     && isAdmin1 && <button className="btn" onClick={()=>setShowAddUser(true)} style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Add User</button>}
       </div>
 
       {/* MAIN */}
@@ -468,12 +672,15 @@ export default function Dashboard({ user }) {
           <div className="card" style={{padding:18,marginBottom:14}}>
             <div style={{fontWeight:700,fontSize:15,marginBottom:12,color:"#1e293b"}}>Quick Actions</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              {[
+              {(isAdmin1 ? [
                 {label:"Add Learner",    action:()=>setShowAddLearner(true),  color:"#7B2D8B"},
                 {label:"Record Payment", action:()=>setShowAddPayment(true),  color:"#10b981"},
                 {label:"WhatsApp",      action:()=>setActiveTab("whatsapp"), color:"#25D366"},
                 {label:"Annual Report", action:()=>setActiveTab("annual"),   color:"#f59e0b"},
-              ].map(a=>(
+              ] : [
+                {label:"Finance",       action:()=>setActiveTab("finance"),   color:"#7B2D8B"},
+                {label:"Petty Cash",    action:()=>setActiveTab("pettycash"), color:"#10b981"},
+              ]).map(a=>(
                 <button key={a.label} className="btn" onClick={a.action} style={{background:a.color+"18",color:a.color,border:`1.5px solid ${a.color}33`,textAlign:"left",fontSize:13,padding:"13px 14px",borderRadius:14,fontWeight:700}}>{a.label}</button>
               ))}
             </div>
@@ -495,9 +702,7 @@ export default function Dashboard({ user }) {
 
         {/* PAYMENTS */}
         {activeTab==="payments" && <>
-          <button className="btn" onClick={()=>setShowAddPayment(true)} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:12,fontSize:15,padding:"14px"}}>
-            Record New Payment
-          </button>
+          {isAdmin1 && <button className="btn" onClick={()=>setShowAddPayment(true)} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:12,fontSize:15,padding:"14px"}}>Record New Payment</button>}
           <input className="inp" style={{marginBottom:10}} placeholder="Search learner or parent…" value={searchQ} onChange={e=>setSearchQ(e.target.value)}/>
           <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:6,marginBottom:12}}>
             <select className="inp" style={{minWidth:148,flex:"0 0 auto",fontSize:"14px!important"}} value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)}>
@@ -509,59 +714,144 @@ export default function Dashboard({ user }) {
               </button>
             ))}
           </div>
-          <div className="clist">
-            {filtered.map(l=>{
-              const cfg=STATUS_CFG[l.status];
-              return (
-                <div key={l.id} className="lcard" onClick={()=>setShowReceipt(l)}>
-                  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
-                    <div style={{width:42,height:42,borderRadius:"50%",background:avatarColor(l.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(l.name)}</div>
-                    <div style={{flex:1}}><div style={{fontSize:15,fontWeight:700}}>{l.name}</div><div style={{fontSize:12,color:"#94a3b8"}}>{l.grade} · {l.parent}</div></div>
-                    <span className="tag" style={{background:cfg.bg,color:cfg.color}}>{cfg.label}</span>
+          {groupedByGrade.length===0 && <div style={{textAlign:"center",padding:40,color:"#94a3b8"}}>No records match.</div>}
+          {groupedByGrade.map(({grade,learners:gLearners,stats:gs})=>(
+            <div key={grade} style={{marginBottom:14}}>
+              {/* Grade Header */}
+              <button className="nb" onClick={()=>toggleGrade(grade)} style={{width:"100%",marginBottom:expandedGrades.has(grade)?8:0}}>
+                <div style={{background:"linear-gradient(135deg,#22073A,#3D1445)",borderRadius:expandedGrades.has(grade)?"14px 14px 0 0":"14px",padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{background:"rgba(255,255,255,.12)",borderRadius:8,padding:"4px 10px"}}>
+                      <span style={{fontSize:13,fontWeight:800,color:"#D4A820"}}>{grade}</span>
+                    </div>
+                    <span style={{fontSize:12,color:"rgba(255,255,255,.55)"}}>{gLearners.length} learner{gLearners.length!==1?"s":""}</span>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:l.status!=="paid"?12:0}}>
-                    {[["Fee",fmt(l.fee),"#475569","#FFFFFF"],["Paid",fmt(l.totalPaid),"#10b981","#f0fdf4"],["Balance",fmt(l.balance),l.balance>0?"#f43f5e":"#94a3b8",l.balance>0?"#fff5f5":"#FFFFFF"]].map(([lab,val,col,bg])=>(
-                      <div key={lab} style={{textAlign:"center",background:bg,borderRadius:10,padding:"9px 4px"}}>
-                        <div style={{fontSize:14,fontWeight:700,color:col}}>{val}</div>
-                        <div style={{fontSize:10,color:"#94a3b8"}}>{lab}</div>
-                      </div>
-                    ))}
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:13,fontWeight:700,color:gs.rate>=80?"#10b981":gs.rate>=50?"#f59e0b":"#f87171"}}>{gs.rate}%</div>
+                      <div style={{fontSize:10,color:"rgba(255,255,255,.4)"}}>collected</div>
+                    </div>
+                    <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,.08)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <span style={{color:"rgba(255,255,255,.6)",fontSize:16,lineHeight:1,transition:"transform .2s",display:"block",transform:expandedGrades.has(grade)?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+                    </div>
                   </div>
-                  {l.status!=="paid"&&<button className="btn" onClick={e=>{e.stopPropagation();handleSendReminder(l.id);}} style={{width:"100%",background:remindersSent.includes(l.id+activeTerm)?"#d1fae5":"#F3EDF7",color:remindersSent.includes(l.id+activeTerm)?"#065f46":"#64748b",fontSize:13}}>{remindersSent.includes(l.id+activeTerm)?"✓ Reminder Sent":"Send Reminder"}</button>}
                 </div>
-              );
-            })}
-            {filtered.length===0&&<div style={{textAlign:"center",padding:40,color:"#94a3b8"}}>No records match.</div>}
-          </div>
+                {/* Grade mini progress bar */}
+                <div style={{height:4,background:"rgba(34,7,58,.15)",borderRadius:expandedGrades.has(grade)?"0":"0 0 4px 4px",overflow:"hidden",display:expandedGrades.has(grade)?"block":"none"}}>
+                  <div style={{height:"100%",background:gs.rate>=80?"#10b981":gs.rate>=50?"#f59e0b":"#f87171",width:`${gs.rate}%`,transition:"width .8s"}}/>
+                </div>
+              </button>
+              {/* Learner cards */}
+              {expandedGrades.has(grade) && (
+                <div style={{border:"1px solid #e2e8f0",borderTop:"none",borderRadius:"0 0 14px 14px",overflow:"hidden",background:"#fff"}}>
+                  {gLearners.map((l,i)=>{
+                    const cfg=STATUS_CFG[l.status];
+                    return (
+                      <div key={l.id} style={{padding:"14px 16px",borderBottom:i<gLearners.length-1?"1px solid #f1f5f9":"none",cursor:"pointer",transition:"background .15s"}}
+                        onClick={()=>setShowReceipt(l)}
+                        onMouseEnter={e=>e.currentTarget.style.background="#FAF7FD"}
+                        onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                        <div style={{display:"flex",alignItems:"center",gap:12}}>
+                          <div style={{width:40,height:40,borderRadius:"50%",background:avatarColor(l.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(l.name)}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:2}}>{l.name}</div>
+                            <div style={{fontSize:11,color:"#94a3b8"}}>{l.parent||"—"} {l.phone?`· ${l.phone}`:""}</div>
+                          </div>
+                          <div style={{textAlign:"right",flexShrink:0}}>
+                            <span className="tag" style={{background:cfg.bg,color:cfg.color,marginBottom:4,display:"block"}}>{cfg.label}</span>
+                            <div style={{fontSize:12,color:"#94a3b8"}}>{fmt(l.paidDisplay)}<span style={{color:"#e2e8f0"}}>/</span><span style={{color:l.balance>0?"#f43f5e":"#94a3b8"}}>{fmt(l.fee)}</span></div>
+                          </div>
+                        </div>
+                        {l.balance>0&&(
+                          <div style={{marginTop:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                            <div style={{flex:1,height:4,background:"#f1f5f9",borderRadius:99,overflow:"hidden",marginRight:12}}>
+                              <div style={{height:"100%",background:l.paidDisplay/l.fee>=.8?"#10b981":l.paidDisplay/l.fee>=.5?"#f59e0b":"#f87171",width:`${Math.min(100,(l.paidDisplay/(l.fee+l.arrears||1))*100)}%`,borderRadius:99,transition:"width .5s"}}/>
+                            </div>
+                            <button className="btn" onClick={e=>{e.stopPropagation();handleSendReminder(l.id);}} style={{padding:"5px 12px",fontSize:11,background:remindersSent.includes(l.id+activeTerm)?"#d1fae5":"#fef3c7",color:remindersSent.includes(l.id+activeTerm)?"#065f46":"#92400e",borderRadius:8}}>
+                              {remindersSent.includes(l.id+activeTerm)?"✓ Sent":"Remind"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Grade summary footer */}
+                  <div style={{background:"#FAFBFC",borderTop:"1px solid #f1f5f9",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:11,color:"#94a3b8",fontWeight:500}}>Collected: <strong style={{color:"#10b981"}}>{fmt(gs.collected)}</strong></span>
+                    <span style={{fontSize:11,color:"#94a3b8",fontWeight:500}}>Outstanding: <strong style={{color:"#f43f5e"}}>{fmt(gs.expected-gs.collected)}</strong></span>
+                    <span style={{fontSize:11,color:"#94a3b8",fontWeight:500}}>Paid: <strong style={{color:"#7B2D8B"}}>{gs.paid}/{gs.total}</strong></span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </>}
 
         {/* LEARNERS */}
         {activeTab==="learners" && <>
-          <button className="btn" onClick={()=>setShowAddLearner(true)} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:14,fontSize:15,padding:"15px"}}>+ Add New Learner</button>
-          <div className="clist">
-            {enriched.map(l=>{
-              const cfg=STATUS_CFG[l.status];
-              return (
-                <div key={l.id} className="lcard">
-                  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
-                    <div style={{width:44,height:44,borderRadius:"50%",background:avatarColor(l.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(l.name)}</div>
-                    <div style={{flex:1}}><div style={{fontSize:15,fontWeight:700}}>{l.name}</div><div style={{fontSize:12,color:"#94a3b8"}}>{l.grade}</div></div>
-                    <span className="tag" style={{background:cfg.bg,color:cfg.color}}>{cfg.label}</span>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                    <div><div style={{fontSize:10,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".06em"}}>Parent</div><div style={{fontSize:14,fontWeight:500,marginTop:2}}>{l.parent}</div></div>
-                    <div><div style={{fontSize:10,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".06em"}}>Phone</div><div style={{fontSize:14,fontWeight:500,marginTop:2}}>{l.phone}</div></div>
-                  </div>
-                  <div style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid #f1f5f9",marginBottom:10}}>
-                    <span style={{fontSize:14,fontWeight:700,color:"#10b981"}}>Paid: {fmt(l.totalPaid)}</span>
-                    <span style={{fontSize:14,fontWeight:700,color:l.balance>0?"#f43f5e":"#94a3b8"}}>Bal: {fmt(l.balance)}</span>
-                  </div>
-                  <button className="btn" onClick={()=>setDelConfirm(l)} style={{width:"100%",background:"#fee2e2",color:"#ef4444",fontSize:13}}>Remove Learner</button>
-                </div>
-              );
-            })}
-            {enriched.length===0&&<div className="card" style={{padding:48,textAlign:"center",color:"#94a3b8"}}><div style={{color:"#D4A820",display:"flex",justifyContent:"center",marginBottom:12}}><IconSchool size={44}/></div><div style={{fontWeight:600,marginBottom:10}}>No learners yet</div><button className="btn" onClick={()=>setShowAddLearner(true)} style={{background:"#7B2D8B",color:"#fff"}}>Add First Learner</button></div>}
+          <div style={{display:"flex",gap:10,marginBottom:14}}>
+            <input className="inp" placeholder="Search learners…" value={learnerSearch} onChange={e=>setLearnerSearch(e.target.value)} style={{flex:1}}/>
+            <button className="btn" onClick={()=>setShowAddLearner(true)} style={{background:"#7B2D8B",color:"#fff",flexShrink:0,fontSize:14,padding:"12px 18px"}}>+ Add</button>
           </div>
+          <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:6,marginBottom:12}}>
+            <button className="pill" onClick={()=>setGradeFilter("All Grades")} style={{flex:"0 0 auto",background:gradeFilter==="All Grades"?"#7B2D8B22":"#F3EDF7",color:gradeFilter==="All Grades"?"#7B2D8B":"#64748b",border:`1px solid ${gradeFilter==="All Grades"?"#7B2D8B44":"#e2e8f0"}`}}>All</button>
+            {GRADES.map(g=>(
+              <button key={g} className="pill" onClick={()=>setGradeFilter(g==="All Grades"?"All Grades":g)} style={{flex:"0 0 auto",background:gradeFilter===g?"#7B2D8B22":"#F3EDF7",color:gradeFilter===g?"#7B2D8B":"#64748b",border:`1px solid ${gradeFilter===g?"#7B2D8B44":"#e2e8f0"}`,whiteSpace:"nowrap"}}>{g}</button>
+            ))}
+          </div>
+          {groupedLearners.length===0&&<div className="card" style={{padding:48,textAlign:"center",color:"#94a3b8"}}><div style={{color:"#D4A820",display:"flex",justifyContent:"center",marginBottom:12}}><IconSchool size={44}/></div><div style={{fontWeight:600,marginBottom:10}}>No learners found</div><button className="btn" onClick={()=>setShowAddLearner(true)} style={{background:"#7B2D8B",color:"#fff"}}>Add First Learner</button></div>}
+          {groupedLearners.map(({grade,learners:gLearners})=>(
+            <div key={grade} style={{marginBottom:16}}>
+              <button className="nb" onClick={()=>toggleGrade(grade+"_l")} style={{width:"100%",marginBottom:expandedGrades.has(grade+"_l")||!expandedGrades.has(grade+"_l")?8:0}}>
+                <div style={{background:"linear-gradient(135deg,#22073A,#3D1445)",borderRadius:expandedGrades.has(grade+"_l")?"14px 14px 0 0":"14px",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:13,fontWeight:800,color:"#D4A820"}}>{grade}</span>
+                    <span style={{fontSize:12,color:"rgba(255,255,255,.5)",background:"rgba(255,255,255,.08)",borderRadius:99,padding:"2px 8px"}}>{gLearners.length}</span>
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    {[["paid","#10b981"],["partial","#f59e0b"],["unpaid","#60a5fa"],["overdue","#f43f5e"]].map(([s,c])=>{
+                      const cnt=gLearners.filter(l=>l.status===s).length;
+                      return cnt>0?<span key={s} style={{fontSize:11,color:c,background:c+"22",borderRadius:99,padding:"2px 7px",fontWeight:700}}>{cnt}</span>:null;
+                    })}
+                    <span style={{color:"rgba(255,255,255,.5)",fontSize:14}}>▾</span>
+                  </div>
+                </div>
+              </button>
+              {(expandedGrades.has(grade+"_l")||!expandedGrades.has(grade+"_l")?true:false) && (
+                <div style={{border:"1px solid #e2e8f0",borderTop:"none",borderRadius:"0 0 14px 14px",overflow:"hidden",background:"#fff"}}>
+                  {gLearners.map((l,i)=>{
+                    const cfg=STATUS_CFG[l.status];
+                    return (
+                      <div key={l.id} style={{padding:"14px 16px",borderBottom:i<gLearners.length-1?"1px solid #f1f5f9":"none"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+                          <div style={{width:42,height:42,borderRadius:"50%",background:avatarColor(l.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(l.name)}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:15,fontWeight:700,color:"#1e293b"}}>{l.name}</div>
+                            <div style={{fontSize:12,color:"#94a3b8"}}>{l.parent||"No parent recorded"}{l.phone?` · ${l.phone}`:""}</div>
+                          </div>
+                          <span className="tag" style={{background:cfg.bg,color:cfg.color,flexShrink:0}}>{cfg.label}</span>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+                          {[["Fee",fmt(l.fee),"#475569"],["Paid",fmt(l.paidDisplay),"#10b981"],["Balance",fmt(l.balance),l.balance>0?"#f43f5e":"#94a3b8"]].map(([lab,val,col])=>(
+                            <div key={lab} style={{textAlign:"center",background:"#F8FAFC",borderRadius:10,padding:"8px 4px"}}>
+                              <div style={{fontSize:13,fontWeight:700,color:col}}>{val}</div>
+                              <div style={{fontSize:10,color:"#94a3b8"}}>{lab}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                          {isAdmin1 && <button className="btn" onClick={()=>{setEditLearner(l);setEditLearnerVals({name:l.name,grade:l.grade,parent:l.parent||"",phone:l.phone||"",email:l.email||""});}} style={{flex:1,background:"#EDE4F5",color:"#7B2D8B",fontSize:12,padding:"9px"}}>Edit</button>}
+                          <button className="btn" onClick={()=>{setShowHistory(l);setActiveTab("history");}} style={{flex:1,background:"#e0f2fe",color:"#0369a1",fontSize:12,padding:"9px"}}>History</button>
+                          <button className="btn" onClick={()=>setShowReceipt(l)} style={{flex:1,background:"#f0fdf4",color:"#10b981",fontSize:12,padding:"9px"}}>Receipt</button>
+                          {isAdmin1 && <button className="btn" onClick={()=>setDelConfirm(l)} style={{flex:1,background:"#fee2e2",color:"#ef4444",fontSize:12,padding:"9px"}}>Remove</button>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
         </>}
 
         {/* REMINDERS */}
@@ -624,7 +914,7 @@ export default function Dashboard({ user }) {
 
         {/* FEES */}
         {activeTab==="fees" && <>
-          <button className="btn" onClick={()=>{setEditFeeVals({});setShowEditFees(true);}} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:14,fontSize:15,padding:"15px"}}>Edit Fee Structure</button>
+          {isAdmin1 && <button className="btn" onClick={()=>{setEditFeeVals({});setShowEditFees(true);}} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:14,fontSize:15,padding:"15px"}}>Edit Fee Structure</button>}
           <div className="clist">
             {GRADES.map(g=>(
               <div key={g} className="lcard">
@@ -640,10 +930,149 @@ export default function Dashboard({ user }) {
           </div>
         </>}
 
+        {/* PAYMENT HISTORY (per-learner modal trigger from learner card) */}
+        {activeTab==="history" && showHistory && (() => {
+          const l = enriched.find(x=>x.id===showHistory.id) || showHistory;
+          const allPayments = payments.filter(p=>p.learnerId===l.id).sort((a,b)=>(b.date||"")>(a.date||"")?1:-1);
+          const totalEver = allPayments.reduce((a,p)=>a+(p.amount||0),0);
+          return (
+            <>
+              <button className="btn" onClick={()=>{setShowHistory(null);setActiveTab("learners");}} style={{background:"#F3EDF7",color:"#7B2D8B",marginBottom:14,fontSize:13,padding:"10px 18px"}}>← Back to Learners</button>
+              <div className="card" style={{padding:18,marginBottom:14}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:48,height:48,borderRadius:"50%",background:avatarColor(l.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:"#fff"}}>{initials(l.name)}</div>
+                  <div>
+                    <div style={{fontSize:17,fontWeight:800,color:"#1e293b"}}>{l.name}</div>
+                    <div style={{fontSize:12,color:"#94a3b8"}}>{l.grade} · {l.parent||"No parent"} · {l.phone||"No phone"}</div>
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {[["Total Received",fmt(totalEver),"#7B2D8B"],["Payments",allPayments.length+" records","#10b981"]].map(([lab,val,col])=>(
+                    <div key={lab} style={{background:"#F8FAFC",borderRadius:10,padding:"12px",textAlign:"center"}}>
+                      <div style={{fontSize:16,fontWeight:800,color:col}}>{val}</div>
+                      <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>{lab}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {TERMS.map(term=>{
+                const termPays = allPayments.filter(p=>p.term===term);
+                if (!termPays.length) return null;
+                const termTotal = termPays.reduce((a,p)=>a+(p.amount||0),0);
+                const termFee = fees[l.grade]||0;
+                return (
+                  <div key={term} className="card" style={{marginBottom:12,overflow:"hidden"}}>
+                    <div style={{background:"linear-gradient(135deg,#22073A,#3D1445)",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:13,fontWeight:700,color:"#D4A820"}}>{term}</span>
+                      <span style={{fontSize:12,color:"rgba(255,255,255,.7)"}}>{fmt(termTotal)} / {fmt(termFee)}</span>
+                    </div>
+                    {termPays.map((p,i)=>(
+                      <div key={p.id||i} style={{padding:"12px 16px",borderBottom:i<termPays.length-1?"1px solid #f1f5f9":"none",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <div>
+                          <div style={{fontSize:14,fontWeight:700,color:"#1e293b"}}>{fmt(p.amount)}</div>
+                          <div style={{fontSize:11,color:"#94a3b8"}}>{p.date||"—"} · {p.method||"Cash"}{p.notes?` · ${p.notes}`:""}</div>
+                          {p.syncedFromOffline&&<span style={{fontSize:10,background:"#ede4f5",color:"#7B2D8B",borderRadius:99,padding:"1px 7px",fontWeight:600}}>Offline sync</span>}
+                        </div>
+                        {isAdmin1 && <button className="btn" onClick={()=>setDelPayConfirm(p)} style={{background:"#fee2e2",color:"#ef4444",fontSize:11,padding:"6px 12px"}}>Delete</button>}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              {allPayments.length===0&&<div className="card" style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:14}}>No payment records found.</div>}
+            </>
+          );
+        })()}
+
+        {/* AUDIT LOG */}
+        {activeTab==="audit" && <>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>Audit Log</div>
+              <div style={{fontSize:12,color:"#94a3b8",marginTop:2}}>Last {auditLogs.length} actions</div>
+            </div>
+          </div>
+          {auditLogs.length===0&&<div className="card" style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:14}}>No audit events yet.</div>}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {auditLogs.map(log=>{
+              const ts = log.timestamp?.toDate?.();
+              const timeStr = ts ? ts.toLocaleString("en-ZM",{dateStyle:"short",timeStyle:"short"}) : "—";
+              const cfg = {
+                PAYMENT_ADDED:         {label:"Payment Added",      color:"#10b981", bg:"#f0fdf4"},
+                PAYMENT_DELETED:       {label:"Payment Deleted",     color:"#f43f5e", bg:"#fff5f5"},
+                PAYMENT_SYNCED_OFFLINE:{label:"Offline Synced",      color:"#7B2D8B", bg:"#faf5ff"},
+                LEARNER_ADDED:         {label:"Learner Added",       color:"#3b82f6", bg:"#eff6ff"},
+                LEARNER_DELETED:       {label:"Learner Removed",     color:"#f43f5e", bg:"#fff5f5"},
+                LEARNER_EDITED:        {label:"Learner Updated",     color:"#f59e0b", bg:"#fffbeb"},
+                FEES_UPDATED:          {label:"Fees Updated",        color:"#06b6d4", bg:"#ecfeff"},
+                USER_CREATED:          {label:"User Created",         color:"#7B2D8B", bg:"#faf5ff"},
+                USER_ROLE_CHANGED:     {label:"Role Changed",         color:"#f59e0b", bg:"#fffbeb"},
+                USER_REMOVED:          {label:"User Removed",         color:"#f43f5e", bg:"#fff5f5"},
+              }[log.action] || {label:log.action, color:"#94a3b8", bg:"#f8fafc"};
+              return (
+                <div key={log.id} style={{background:cfg.bg,border:`1px solid ${cfg.color}22`,borderRadius:14,padding:"12px 16px",borderLeft:`4px solid ${cfg.color}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                    <span style={{fontSize:12,fontWeight:700,color:cfg.color,background:cfg.color+"18",borderRadius:99,padding:"2px 10px"}}>{cfg.label}</span>
+                    <span style={{fontSize:11,color:"#94a3b8"}}>{timeStr}</span>
+                  </div>
+                  <div style={{fontSize:13,color:"#1e293b",fontWeight:500,marginBottom:2}}>
+                    {log.details?.learnerName||log.details?.name||""}
+                    {log.details?.amount ? ` — ${fmt(log.details.amount)}` : ""}
+                    {log.details?.grade ? ` (${log.details.grade})` : ""}
+                  </div>
+                  <div style={{fontSize:11,color:"#94a3b8"}}>By {log.performedBy||"—"} · {log.term||""}</div>
+                </div>
+              );
+            })}
+          </div>
+        </>}
+
         {activeTab==="finance"   && <Finance user={user}/>}
         {activeTab==="whatsapp"  && <WhatsApp learners={enriched} feeStructure={fees} activeTerm={activeTerm} user={user}/>}
         {activeTab==="annual"    && <AnnualSummary payments={payments} salaryPayments={[]} expenses={[]} staff={learners} feeStructure={fees}/>}
         {activeTab==="pettycash" && <PettyCash user={user}/>}
+
+        {/* USERS */}
+        {activeTab==="users" && isAdmin1 && <>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>User Management</div>
+              <div style={{fontSize:12,color:"#94a3b8",marginTop:2}}>{appUsers.length} account{appUsers.length!==1?"s":""} registered</div>
+            </div>
+            <button className="btn" onClick={()=>setShowAddUser(true)} style={{background:"#7B2D8B",color:"#fff",fontSize:13,padding:"10px 18px",display:"flex",alignItems:"center",gap:7}}><IconUserPlus size={15}/>Add User</button>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {appUsers.map(u=>(
+              <div key={u.id} className="card" style={{padding:"16px 18px",display:"flex",alignItems:"center",gap:14}}>
+                <div style={{width:42,height:42,borderRadius:"50%",background:u.role==="admin1"?"#22073A":"#1e3a5f",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <IconShield size={18} style={{color:u.role==="admin1"?"#D4A820":"#60a5fa"}}/>
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:14,color:"#1e293b",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{u.name||u.email}</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{u.email}</div>
+                  <div style={{marginTop:5}}>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:u.role==="admin1"?"rgba(212,168,32,.15)":"rgba(96,165,250,.15)",color:u.role==="admin1"?"#D4A820":"#60a5fa",letterSpacing:".04em"}}>
+                      {u.role==="admin1"?"Admin 1 — Full Access":"Admin 2 — Finance Only"}
+                    </span>
+                  </div>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-end"}}>
+                  {u.id !== user.uid && (
+                    <select className="inp" value={u.role} onChange={e=>handleUpdateUserRole(u.id,e.target.value)} style={{fontSize:12,padding:"7px 10px",width:"auto",minWidth:110,borderColor:"#e2e8f0"}}>
+                      <option value="admin1">Admin 1</option>
+                      <option value="admin2">Admin 2</option>
+                    </select>
+                  )}
+                  {u.id === user.uid && <span style={{fontSize:11,color:"#94a3b8",fontStyle:"italic"}}>You</span>}
+                  {u.id !== user.uid && (
+                    <button className="btn" onClick={()=>setDelUserConfirm(u)} style={{background:"#fee2e2",color:"#ef4444",fontSize:11,padding:"6px 12px"}}>Remove</button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {appUsers.length===0&&<div className="card" style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:14}}>No users yet.</div>}
+          </div>
+        </>}
 
       </main>
 
@@ -659,6 +1088,7 @@ export default function Dashboard({ user }) {
           );
         })}
       </nav>
+
       {/* ── ADD LEARNER MODAL ──────────────────────────── */}
       {showAddLearner && (
         <div className="overlay" onClick={()=>setShowAddLearner(false)}>
@@ -718,7 +1148,7 @@ export default function Dashboard({ user }) {
                 const l=enriched.find(x=>x.id===newPayment.learnerId);
                 return l?(
                   <div style={{background:"#FFFFFF",border:"1px solid #e2e8f0",borderRadius:10,padding:12,fontSize:12,color:"#64748b"}}>
-                    Fee: <strong style={{color:"#1e293b"}}>{fmt(l.fee)}</strong> · Paid: <strong style={{color:"#10b981"}}>{fmt(l.totalPaid)}</strong> · Balance: <strong style={{color:"#f43f5e"}}>{fmt(l.balance)}</strong>{l.arrears>0?` · Arrears: ${fmt(l.arrears)}`:""}
+                    Fee: <strong style={{color:"#1e293b"}}>{fmt(l.fee)}</strong> · Paid: <strong style={{color:"#10b981"}}>{fmt(l.paidDisplay)}</strong> · Balance: <strong style={{color:"#f43f5e"}}>{fmt(l.balance)}</strong>{l.arrears>0?` · Arrears: ${fmt(l.arrears)}`:""}
                   </div>
                 ):null;
               })()}
@@ -770,11 +1200,12 @@ export default function Dashboard({ user }) {
                   <span className="tag" style={{background:cfg.bg,color:cfg.color}}>{cfg.label}</span>
                 </div>
                 {[
-                  ["Term Fee",     fmt(l.fee)],
-                  ["Arrears",      l.arrears>0?fmt(l.arrears):"None"],
-                  ["Total Owed",   fmt(l.fee+l.arrears)],
-                  ["Amount Paid",  fmt(l.totalPaid)],
-                  ["Balance Due",  fmt(l.balance)],
+                  ["Term Fee",      fmt(l.fee)],
+                  ["Arrears",       l.arrears>0?fmt(l.arrears):"None"],
+                  ["Total Owed",    fmt(l.fee+l.arrears)],
+                  ["Amount Paid",   fmt(l.paidDisplay)],
+                  ...(l.totalPaid>l.fee+l.arrears?[["Total Received", fmt(l.totalPaid)]]:[] ),
+                  ["Balance Due",   fmt(l.balance)],
                   ["Last Payment", l.lastPayment?.date||"—"],
                   ["Method",       l.lastPayment?.method||"—"],
                   ["Parent",       l.parent],
@@ -786,7 +1217,24 @@ export default function Dashboard({ user }) {
                   </div>
                 ))}
               </div>
-              <button className="btn" onClick={()=>setShowReceipt(null)} style={{width:"100%",background:"#7B2D8B",color:"#fff"}}>Close</button>
+              {l.termPayments && l.termPayments.length>0&&(
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>Payment History</div>
+                  {l.termPayments.map((p,i)=>(
+                    <div key={p.id||i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:i%2===0?"#F8FAFC":"#fff",borderRadius:8,marginBottom:4}}>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>{fmt(p.amount)}</div>
+                        <div style={{fontSize:11,color:"#94a3b8"}}>{p.date||"—"} · {p.method||"—"}</div>
+                      </div>
+                      {p.notes&&<div style={{fontSize:11,color:"#94a3b8",maxWidth:"50%",textAlign:"right",wordBreak:"break-word"}}>{p.notes}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{display:"flex",gap:8}}>
+                <button className="btn" onClick={()=>{setShowReceipt(null);setShowAddPayment(true);setNewPayment(p=>({...p,learnerId:l.id}));}} style={{flex:1,background:"#EDE4F5",color:"#7B2D8B",fontSize:13}}>+ Pay</button>
+                <button className="btn" onClick={()=>setShowReceipt(null)} style={{flex:2,background:"#7B2D8B",color:"#fff"}}>Close</button>
+              </div>
             </div>
           </div>
         );
@@ -815,6 +1263,54 @@ export default function Dashboard({ user }) {
         </div>
       )}
 
+      {/* ── EDIT LEARNER MODAL ─────────────────────────────── */}
+      {editLearner && (
+        <div className="overlay" onClick={()=>setEditLearner(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-handle"/>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:800,marginBottom:4}}>Edit Learner</div>
+            <p style={{fontSize:12,color:"#94a3b8",marginBottom:20}}>Update details for {editLearner.name}</p>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              {[{label:"Full Name *",key:"name",type:"text"},{label:"Parent/Guardian",key:"parent",type:"text"},{label:"Phone",key:"phone",type:"tel"},{label:"Email",key:"email",type:"email"}].map(f=>(
+                <div key={f.key}>
+                  <label style={{fontSize:11,fontWeight:700,color:"#94a3b8",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:".06em"}}>{f.label}</label>
+                  <input className="inp" type={f.type} value={editLearnerVals[f.key]||""} onChange={e=>setEditLearnerVals(p=>({...p,[f.key]:e.target.value}))}/>
+                </div>
+              ))}
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:"#94a3b8",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:".06em"}}>Grade</label>
+                <select className="inp" value={editLearnerVals.grade||""} onChange={e=>setEditLearnerVals(p=>({...p,grade:e.target.value}))}>
+                  {GRADES.map(g=><option key={g}>{g}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              <button className="btn" onClick={()=>setEditLearner(null)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
+              <button className="btn" onClick={handleEditLearner} style={{background:"#7B2D8B",color:"#fff",flex:2}}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETE PAYMENT CONFIRM ──────────────────────────── */}
+      {delPayConfirm && (
+        <div className="overlay" onClick={()=>setDelPayConfirm(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:360,textAlign:"center"}}>
+            <div className="modal-handle"/>
+            <div style={{color:"#ef4444",display:"flex",justifyContent:"center",marginBottom:14}}><IconWarning size={40}/></div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:800,marginBottom:8}}>Delete Payment?</div>
+            <p style={{fontSize:13,color:"#64748b",marginBottom:8}}>
+              This will permanently remove the <strong>{fmt(delPayConfirm.amount)}</strong> payment recorded on <strong>{delPayConfirm.date}</strong>.
+            </p>
+            <p style={{fontSize:12,color:"#94a3b8",marginBottom:22}}>This action cannot be undone and will affect the learner's balance.</p>
+            <div style={{display:"flex",gap:10}}>
+              <button className="btn" onClick={()=>setDelPayConfirm(null)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
+              <button className="btn" onClick={()=>handleDeletePayment(delPayConfirm.id, delPayConfirm)} style={{background:"#ef4444",color:"#fff",flex:1}}>Yes, Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── DELETE CONFIRM ────────────────────────────── */}
       {delConfirm && (
         <div className="overlay" onClick={()=>setDelConfirm(null)}>
@@ -825,6 +1321,62 @@ export default function Dashboard({ user }) {
             <div style={{display:"flex",gap:10}}>
               <button className="btn" onClick={()=>setDelConfirm(null)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
               <button className="btn" onClick={()=>handleDeleteLearner(delConfirm.id)} style={{background:"#ef4444",color:"#fff",flex:1}}>Yes, Remove</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ADD USER MODAL ───────────────────────────────── */}
+      {showAddUser && (
+        <div className="overlay" onClick={()=>setShowAddUser(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-handle"/>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:800,marginBottom:6}}>Add User</div>
+            <p style={{fontSize:13,color:"#94a3b8",marginBottom:22}}>Create a new login account for Jemareen Academy.</p>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              {[
+                {label:"Full Name *",     key:"name",     type:"text",     ph:"e.g. Grace Banda"},
+                {label:"Email Address *", key:"email",    type:"email",    ph:"e.g. grace@jemareen.edu"},
+                {label:"Password *",      key:"password", type:"password", ph:"Min. 6 characters"},
+              ].map(f=>(
+                <div key={f.key}>
+                  <label style={{fontSize:11,fontWeight:700,color:"#94a3b8",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>{f.label}</label>
+                  <input className="inp" type={f.type} placeholder={f.ph} value={newUser[f.key]} onChange={e=>setNewUser(p=>({...p,[f.key]:e.target.value}))}/>
+                </div>
+              ))}
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:"#94a3b8",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Role *</label>
+                <select className="inp" value={newUser.role} onChange={e=>setNewUser(p=>({...p,role:e.target.value}))}>
+                  <option value="admin1">Admin 1 — Full Access</option>
+                  <option value="admin2">Admin 2 — Finance Only</option>
+                </select>
+              </div>
+            </div>
+            <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,padding:"10px 14px",marginTop:16,fontSize:12,color:"#92400e"}}>
+              ⚠ The new user will be able to sign in immediately with this email and password.
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              <button className="btn" onClick={()=>setShowAddUser(false)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
+              <button className="btn" onClick={handleCreateUser} style={{background:"#7B2D8B",color:"#fff",flex:2}}>Create Account</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── REMOVE USER CONFIRM ──────────────────────────── */}
+      {delUserConfirm && (
+        <div className="overlay" onClick={()=>setDelUserConfirm(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:360,textAlign:"center"}}>
+            <div className="modal-handle"/>
+            <div style={{color:"#ef4444",display:"flex",justifyContent:"center",marginBottom:14}}><IconWarning size={40}/></div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:800,marginBottom:8}}>Remove User?</div>
+            <p style={{fontSize:13,color:"#64748b",marginBottom:8}}>
+              <strong>{delUserConfirm.name||delUserConfirm.email}</strong> will lose access to the app immediately.
+            </p>
+            <p style={{fontSize:12,color:"#94a3b8",marginBottom:22}}>Their Firebase Auth account will remain, only app access is revoked.</p>
+            <div style={{display:"flex",gap:10}}>
+              <button className="btn" onClick={()=>setDelUserConfirm(null)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
+              <button className="btn" onClick={()=>handleRemoveUser(delUserConfirm.id)} style={{background:"#ef4444",color:"#fff",flex:1}}>Yes, Remove</button>
             </div>
           </div>
         </div>
