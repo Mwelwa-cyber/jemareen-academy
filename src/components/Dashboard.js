@@ -128,8 +128,10 @@ export default function Dashboard({ user }) {
       const prevFee = fees[learner.grade] || 0;
       const arrears = prevTerm ? Math.max(0, prevFee - prevPaid) : 0;
       const balance = Math.max(0, fee + arrears - totalPaid);
+      // Cap displayed paid at what was actually owed — prevents showing paid > fee
+      const paidDisplay = Math.min(totalPaid, fee + arrears);
       const status = getStatus(totalPaid, fee, arrears);
-      return { ...learner, fee, totalPaid, arrears, balance, status, lastPayment, termPayments };
+      return { ...learner, fee, totalPaid, paidDisplay, arrears, balance, status, lastPayment, termPayments };
     });
   }, [learners, payments, fees, activeTerm]);
 
@@ -137,7 +139,7 @@ export default function Dashboard({ user }) {
 
   const stats = useMemo(() => {
     const expected   = termData.reduce((a,l) => a + l.fee + l.arrears, 0);
-    const collected  = termData.reduce((a,l) => a + l.totalPaid, 0);
+    const collected  = termData.reduce((a,l) => a + l.paidDisplay, 0);
     const outstanding= termData.reduce((a,l) => a + l.balance, 0);
     const arrears    = termData.reduce((a,l) => a + l.arrears, 0);
     return {
@@ -163,7 +165,7 @@ export default function Dashboard({ user }) {
 
   const gradeBreakdown = useMemo(() => GRADES.map(grade => {
     const gl = termData.filter(l => l.grade === grade);
-    const collected = gl.reduce((a,l)=>a+l.totalPaid,0);
+    const collected = gl.reduce((a,l)=>a+l.paidDisplay,0);
     const expected  = gl.reduce((a,l)=>a+l.fee+l.arrears,0);
     return { grade, total:gl.length, paid:gl.filter(l=>l.status==="paid").length, collected, expected, rate: expected>0?Math.round(collected/expected*100):0 };
   }), [termData]);
@@ -174,7 +176,7 @@ export default function Dashboard({ user }) {
       learners: filtered.filter(l => l.grade === grade),
       stats: (() => {
         const gl = filtered.filter(l => l.grade === grade);
-        const collected = gl.reduce((a,l)=>a+l.totalPaid,0);
+        const collected = gl.reduce((a,l)=>a+l.paidDisplay,0);
         const expected = gl.reduce((a,l)=>a+l.fee+l.arrears,0);
         return { total: gl.length, paid: gl.filter(l=>l.status==="paid").length, collected, expected, rate: expected>0?Math.round(collected/expected*100):0 };
       })()
@@ -595,13 +597,13 @@ export default function Dashboard({ user }) {
                           </div>
                           <div style={{textAlign:"right",flexShrink:0}}>
                             <span className="tag" style={{background:cfg.bg,color:cfg.color,marginBottom:4,display:"block"}}>{cfg.label}</span>
-                            <div style={{fontSize:12,color:"#94a3b8"}}>{fmt(l.totalPaid)}<span style={{color:"#e2e8f0"}}>/</span><span style={{color:l.balance>0?"#f43f5e":"#94a3b8"}}>{fmt(l.fee)}</span></div>
+                            <div style={{fontSize:12,color:"#94a3b8"}}>{fmt(l.paidDisplay)}<span style={{color:"#e2e8f0"}}>/</span><span style={{color:l.balance>0?"#f43f5e":"#94a3b8"}}>{fmt(l.fee)}</span></div>
                           </div>
                         </div>
                         {l.balance>0&&(
                           <div style={{marginTop:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                             <div style={{flex:1,height:4,background:"#f1f5f9",borderRadius:99,overflow:"hidden",marginRight:12}}>
-                              <div style={{height:"100%",background:l.totalPaid/l.fee>=.8?"#10b981":l.totalPaid/l.fee>=.5?"#f59e0b":"#f87171",width:`${Math.min(100,(l.totalPaid/(l.fee+l.arrears||1))*100)}%`,borderRadius:99,transition:"width .5s"}}/>
+                              <div style={{height:"100%",background:l.paidDisplay/l.fee>=.8?"#10b981":l.paidDisplay/l.fee>=.5?"#f59e0b":"#f87171",width:`${Math.min(100,(l.paidDisplay/(l.fee+l.arrears||1))*100)}%`,borderRadius:99,transition:"width .5s"}}/>
                             </div>
                             <button className="btn" onClick={e=>{e.stopPropagation();handleSendReminder(l.id);}} style={{padding:"5px 12px",fontSize:11,background:remindersSent.includes(l.id+activeTerm)?"#d1fae5":"#fef3c7",color:remindersSent.includes(l.id+activeTerm)?"#065f46":"#92400e",borderRadius:8}}>
                               {remindersSent.includes(l.id+activeTerm)?"✓ Sent":"Remind"}
@@ -668,7 +670,7 @@ export default function Dashboard({ user }) {
                           <span className="tag" style={{background:cfg.bg,color:cfg.color,flexShrink:0}}>{cfg.label}</span>
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
-                          {[["Fee",fmt(l.fee),"#475569"],["Paid",fmt(l.totalPaid),"#10b981"],["Balance",fmt(l.balance),l.balance>0?"#f43f5e":"#94a3b8"]].map(([lab,val,col])=>(
+                          {[["Fee",fmt(l.fee),"#475569"],["Paid",fmt(l.paidDisplay),"#10b981"],["Balance",fmt(l.balance),l.balance>0?"#f43f5e":"#94a3b8"]].map(([lab,val,col])=>(
                             <div key={lab} style={{textAlign:"center",background:"#F8FAFC",borderRadius:10,padding:"8px 4px"}}>
                               <div style={{fontSize:13,fontWeight:700,color:col}}>{val}</div>
                               <div style={{fontSize:10,color:"#94a3b8"}}>{lab}</div>
@@ -844,7 +846,7 @@ export default function Dashboard({ user }) {
                 const l=enriched.find(x=>x.id===newPayment.learnerId);
                 return l?(
                   <div style={{background:"#FFFFFF",border:"1px solid #e2e8f0",borderRadius:10,padding:12,fontSize:12,color:"#64748b"}}>
-                    Fee: <strong style={{color:"#1e293b"}}>{fmt(l.fee)}</strong> · Paid: <strong style={{color:"#10b981"}}>{fmt(l.totalPaid)}</strong> · Balance: <strong style={{color:"#f43f5e"}}>{fmt(l.balance)}</strong>{l.arrears>0?` · Arrears: ${fmt(l.arrears)}`:""}
+                    Fee: <strong style={{color:"#1e293b"}}>{fmt(l.fee)}</strong> · Paid: <strong style={{color:"#10b981"}}>{fmt(l.paidDisplay)}</strong> · Balance: <strong style={{color:"#f43f5e"}}>{fmt(l.balance)}</strong>{l.arrears>0?` · Arrears: ${fmt(l.arrears)}`:""}
                   </div>
                 ):null;
               })()}
@@ -896,11 +898,12 @@ export default function Dashboard({ user }) {
                   <span className="tag" style={{background:cfg.bg,color:cfg.color}}>{cfg.label}</span>
                 </div>
                 {[
-                  ["Term Fee",     fmt(l.fee)],
-                  ["Arrears",      l.arrears>0?fmt(l.arrears):"None"],
-                  ["Total Owed",   fmt(l.fee+l.arrears)],
-                  ["Amount Paid",  fmt(l.totalPaid)],
-                  ["Balance Due",  fmt(l.balance)],
+                  ["Term Fee",      fmt(l.fee)],
+                  ["Arrears",       l.arrears>0?fmt(l.arrears):"None"],
+                  ["Total Owed",    fmt(l.fee+l.arrears)],
+                  ["Amount Paid",   fmt(l.paidDisplay)],
+                  ...(l.totalPaid>l.fee+l.arrears?[["Total Received", fmt(l.totalPaid)]]:[] ),
+                  ["Balance Due",   fmt(l.balance)],
                   ["Last Payment", l.lastPayment?.date||"—"],
                   ["Method",       l.lastPayment?.method||"—"],
                   ["Parent",       l.parent],
