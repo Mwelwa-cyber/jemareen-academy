@@ -14,7 +14,7 @@ import {
   IconDashboard, IconPayments, IconLearners, IconBell, IconChart,
   IconFees, IconFinance, IconChat, IconCalendar, IconWallet,
   IconHome, IconMenu, IconX, IconBolt, IconWarning, IconCheck,
-  IconSchool, IconList,
+  IconSchool, IconList, IconUsers, IconShield, IconUserPlus,
 } from "./Icons";
 
 const GRADES = ["Baby Class","Reception","Grade 1","Grade 2","Grade 3","Grade 4","Grade 5","Grade 6","Grade 7"];
@@ -56,9 +56,10 @@ const NAV = [
   {id:"annual",    icon:<IconCalendar  size={18}/>, label:"Annual"},
   {id:"pettycash", icon:<IconWallet    size={18}/>, label:"Petty Cash"},
   {id:"audit",     icon:<IconList      size={18}/>, label:"Audit Log"},
+  {id:"users",     icon:<IconUsers     size={18}/>, label:"Users"},
 ];
 
-export default function Dashboard({ user }) {
+export default function Dashboard({ user, userRole = "admin1" }) {
   const [activeTab, setActiveTab]       = useState("dashboard");
   const [activeTerm, setActiveTerm]     = useState("Term 1 2026");
   const [learners, setLearners]         = useState([]);
@@ -365,6 +366,56 @@ export default function Dashboard({ user }) {
     } catch { showToast("Could not delete payment.","err"); }
   };
 
+  // ── USER MANAGEMENT ────────────────────────────────────────────────────
+  const API_KEY = "AIzaSyBzvvey5zMXdm8DPaOo0lI5OUyU6MqXta0";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!isAdmin1) return;
+    const unsub = onSnapshot(collection(db,"users"), snap =>
+      setAppUsers(snap.docs.map(d => ({id:d.id, ...d.data()})))
+    );
+    return unsub;
+  }, []); // eslint-disable-line
+
+  const handleCreateUser = async () => {
+    if (!newUser.name || !newUser.email || !newUser.password) { showToast("Fill in all fields.", "err"); return; }
+    if (newUser.password.length < 6) { showToast("Password must be 6+ characters.", "err"); return; }
+    try {
+      const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({email:newUser.email, password:newUser.password, returnSecureToken:true})
+      });
+      const data = await res.json();
+      if (data.error) { showToast(data.error.message || "Failed to create account.", "err"); return; }
+      await setDoc(doc(db,"users",data.localId), {
+        email: newUser.email, name: newUser.name, role: newUser.role,
+        createdAt: serverTimestamp(), createdBy: user.email,
+      });
+      await audit("USER_CREATED", {name:newUser.name, email:newUser.email, role:newUser.role});
+      setShowAddUser(false);
+      setNewUser({name:"",email:"",role:"admin2",password:""});
+      showToast(`${newUser.name} added as ${newUser.role==="admin1"?"Admin 1":"Admin 2"}.`);
+    } catch { showToast("Failed to create user.", "err"); }
+  };
+
+  const handleUpdateUserRole = async (userId, newRole) => {
+    try {
+      await updateDoc(doc(db,"users",userId), {role: newRole});
+      await audit("USER_ROLE_CHANGED", {userId, newRole});
+      showToast("Role updated.");
+    } catch { showToast("Failed to update role.", "err"); }
+  };
+
+  const handleRemoveUser = async (targetUserId) => {
+    if (targetUserId === user.uid) { showToast("Cannot remove yourself.", "err"); return; }
+    try {
+      await deleteDoc(doc(db,"users",targetUserId));
+      await audit("USER_REMOVED", {userId: targetUserId});
+      setDelUserConfirm(null);
+      showToast("User removed.");
+    } catch { showToast("Failed to remove user.", "err"); }
+  };
+
   const generateAIInsight = async () => {
     setAiLoading(true); setAiInsight(null);
     try {
@@ -395,6 +446,15 @@ export default function Dashboard({ user }) {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const isAdmin1 = userRole === "admin1";
+  const ALLOWED_ADMIN2 = ["dashboard","finance","pettycash"];
+  const visibleNAV = isAdmin1 ? NAV : NAV.filter(n => ALLOWED_ADMIN2.includes(n.id));
+
+  const [appUsers, setAppUsers]             = useState([]);
+  const [showAddUser, setShowAddUser]       = useState(false);
+  const [newUser, setNewUser]               = useState({name:"",email:"",role:"admin2",password:""});
+  const [delUserConfirm, setDelUserConfirm] = useState(null);
+
   if (loading) return (
     <div style={{minHeight:"100vh",background:"#F7F3FA",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Outfit',sans-serif"}}>
       <style>{`@keyframes _ldspin{to{transform:rotate(360deg)}}`}</style>
@@ -405,12 +465,16 @@ export default function Dashboard({ user }) {
     </div>
   );
 
-  const BOTTOM_NAV = [
+  const BOTTOM_NAV = isAdmin1 ? [
     {id:"dashboard",icon:<IconHome      size={22}/>,label:"Home"},
     {id:"payments", icon:<IconPayments  size={22}/>,label:"Pay"},
     {id:"learners", icon:<IconLearners  size={22}/>,label:"Learners"},
     {id:"whatsapp", icon:<IconChat      size={22}/>,label:"WhatsApp"},
     {id:"more",     icon:<IconMenu      size={22}/>,label:"More"},
+  ] : [
+    {id:"dashboard",icon:<IconHome      size={22}/>,label:"Home"},
+    {id:"finance",  icon:<IconFinance   size={22}/>,label:"Finance"},
+    {id:"pettycash",icon:<IconWallet    size={22}/>,label:"Petty Cash"},
   ];
 
   return (
@@ -495,7 +559,7 @@ export default function Dashboard({ user }) {
         </div>
         <div style={{height:1,background:"rgba(255,255,255,.06)",margin:"0 16px"}}/>
         <div style={{padding:"6px 10px",flex:1,overflowY:"auto"}}>
-          {NAV.map(n=>(
+          {visibleNAV.map(n=>(
             <button key={n.id} className="nb" onClick={()=>setActiveTab(n.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 10px",borderRadius:10,marginBottom:2,color:activeTab===n.id?"#D4A820":"rgba(255,255,255,.55)",background:activeTab===n.id?"rgba(212,168,32,.08)":"none",fontSize:13,fontWeight:activeTab===n.id?700:400,borderLeft:activeTab===n.id?"3px solid #D4A820":"3px solid transparent"}}>
               <span>{n.icon}</span>{n.label}
             </button>
@@ -503,7 +567,8 @@ export default function Dashboard({ user }) {
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid rgba(255,255,255,.08)"}}>
           <div style={{fontSize:10,color:"rgba(255,255,255,.3)",marginBottom:2}}>Signed in as</div>
-          <div style={{fontSize:11,fontWeight:600,color:"rgba(255,255,255,.6)",marginBottom:10,wordBreak:"break-all"}}>{user?.email}</div>
+          <div style={{fontSize:11,fontWeight:600,color:"rgba(255,255,255,.6)",marginBottom:5,wordBreak:"break-all"}}>{user?.email}</div>
+          <div style={{fontSize:10,color:isAdmin1?"#D4A820":"#60a5fa",fontWeight:700,marginBottom:10,letterSpacing:".04em",display:"flex",alignItems:"center",gap:5}}><IconShield size={11}/>{isAdmin1?"Admin 1 — Full Access":"Admin 2 — Finance Only"}</div>
           <button className="btn" onClick={handleLogout} style={{background:"rgba(244,63,94,.15)",color:"#f87171",width:"100%",fontSize:12,padding:"9px",border:"1px solid rgba(244,63,94,.2)"}}>Sign Out</button>
         </div>
       </aside>
@@ -530,7 +595,7 @@ export default function Dashboard({ user }) {
             ))}
           </div>
           <div style={{flex:1,overflowY:"auto",padding:"8px 10px"}}>
-            {NAV.map(n=>(
+            {visibleNAV.map(n=>(
               <button key={n.id} className="nb" onClick={()=>{setActiveTab(n.id);setSidebarOpen(false);}} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 12px",borderRadius:12,marginBottom:3,color:activeTab===n.id?"#D4A820":"rgba(255,255,255,.6)",background:activeTab===n.id?"rgba(212,168,32,.08)":"none",fontSize:15,fontWeight:activeTab===n.id?700:400,borderLeft:activeTab===n.id?"3px solid #D4A820":"3px solid transparent"}}>
                 <span style={{fontSize:20}}>{n.icon}</span>{n.label}
               </button>
@@ -553,10 +618,11 @@ export default function Dashboard({ user }) {
             <div style={{fontSize:10,color:"#94a3b8"}}>{activeTerm}</div>
           </div>
         </div>
-        {activeTab==="learners"  && <button className="btn" onClick={()=>setShowAddLearner(true)}  style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Add</button>}
-        {activeTab==="payments"  && <button className="btn" onClick={()=>setShowAddPayment(true)}  style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Pay</button>}
-        {activeTab==="reminders" && <button className="btn" onClick={handleBulkRemind}             style={{background:"#f59e0b",color:"#fff",padding:"9px 16px",fontSize:13,display:"flex",alignItems:"center",gap:6}}><IconBolt size={14}/>Send All</button>}
-        {activeTab==="fees"      && <button className="btn" onClick={()=>{setEditFeeVals({});setShowEditFees(true);}} style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>Edit</button>}
+        {activeTab==="learners"  && isAdmin1 && <button className="btn" onClick={()=>setShowAddLearner(true)}  style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Add</button>}
+        {activeTab==="payments"  && isAdmin1 && <button className="btn" onClick={()=>setShowAddPayment(true)}  style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Pay</button>}
+        {activeTab==="reminders" && isAdmin1 && <button className="btn" onClick={handleBulkRemind}             style={{background:"#f59e0b",color:"#fff",padding:"9px 16px",fontSize:13,display:"flex",alignItems:"center",gap:6}}><IconBolt size={14}/>Send All</button>}
+        {activeTab==="fees"      && isAdmin1 && <button className="btn" onClick={()=>{setEditFeeVals({});setShowEditFees(true);}} style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>Edit</button>}
+        {activeTab==="users"     && isAdmin1 && <button className="btn" onClick={()=>setShowAddUser(true)} style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Add User</button>}
       </div>
 
       {/* MAIN */}
@@ -606,12 +672,15 @@ export default function Dashboard({ user }) {
           <div className="card" style={{padding:18,marginBottom:14}}>
             <div style={{fontWeight:700,fontSize:15,marginBottom:12,color:"#1e293b"}}>Quick Actions</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              {[
+              {(isAdmin1 ? [
                 {label:"Add Learner",    action:()=>setShowAddLearner(true),  color:"#7B2D8B"},
                 {label:"Record Payment", action:()=>setShowAddPayment(true),  color:"#10b981"},
                 {label:"WhatsApp",      action:()=>setActiveTab("whatsapp"), color:"#25D366"},
                 {label:"Annual Report", action:()=>setActiveTab("annual"),   color:"#f59e0b"},
-              ].map(a=>(
+              ] : [
+                {label:"Finance",       action:()=>setActiveTab("finance"),   color:"#7B2D8B"},
+                {label:"Petty Cash",    action:()=>setActiveTab("pettycash"), color:"#10b981"},
+              ]).map(a=>(
                 <button key={a.label} className="btn" onClick={a.action} style={{background:a.color+"18",color:a.color,border:`1.5px solid ${a.color}33`,textAlign:"left",fontSize:13,padding:"13px 14px",borderRadius:14,fontWeight:700}}>{a.label}</button>
               ))}
             </div>
@@ -633,7 +702,7 @@ export default function Dashboard({ user }) {
 
         {/* PAYMENTS */}
         {activeTab==="payments" && <>
-          <button className="btn" onClick={()=>setShowAddPayment(true)} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:12,fontSize:15,padding:"14px"}}>Record New Payment</button>
+          {isAdmin1 && <button className="btn" onClick={()=>setShowAddPayment(true)} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:12,fontSize:15,padding:"14px"}}>Record New Payment</button>}
           <input className="inp" style={{marginBottom:10}} placeholder="Search learner or parent…" value={searchQ} onChange={e=>setSearchQ(e.target.value)}/>
           <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:6,marginBottom:12}}>
             <select className="inp" style={{minWidth:148,flex:"0 0 auto",fontSize:"14px!important"}} value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)}>
@@ -771,10 +840,10 @@ export default function Dashboard({ user }) {
                           ))}
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                          <button className="btn" onClick={()=>{setEditLearner(l);setEditLearnerVals({name:l.name,grade:l.grade,parent:l.parent||"",phone:l.phone||"",email:l.email||""});}} style={{flex:1,background:"#EDE4F5",color:"#7B2D8B",fontSize:12,padding:"9px"}}>Edit</button>
+                          {isAdmin1 && <button className="btn" onClick={()=>{setEditLearner(l);setEditLearnerVals({name:l.name,grade:l.grade,parent:l.parent||"",phone:l.phone||"",email:l.email||""});}} style={{flex:1,background:"#EDE4F5",color:"#7B2D8B",fontSize:12,padding:"9px"}}>Edit</button>}
                           <button className="btn" onClick={()=>{setShowHistory(l);setActiveTab("history");}} style={{flex:1,background:"#e0f2fe",color:"#0369a1",fontSize:12,padding:"9px"}}>History</button>
                           <button className="btn" onClick={()=>setShowReceipt(l)} style={{flex:1,background:"#f0fdf4",color:"#10b981",fontSize:12,padding:"9px"}}>Receipt</button>
-                          <button className="btn" onClick={()=>setDelConfirm(l)} style={{flex:1,background:"#fee2e2",color:"#ef4444",fontSize:12,padding:"9px"}}>Remove</button>
+                          {isAdmin1 && <button className="btn" onClick={()=>setDelConfirm(l)} style={{flex:1,background:"#fee2e2",color:"#ef4444",fontSize:12,padding:"9px"}}>Remove</button>}
                         </div>
                       </div>
                     );
@@ -845,7 +914,7 @@ export default function Dashboard({ user }) {
 
         {/* FEES */}
         {activeTab==="fees" && <>
-          <button className="btn" onClick={()=>{setEditFeeVals({});setShowEditFees(true);}} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:14,fontSize:15,padding:"15px"}}>Edit Fee Structure</button>
+          {isAdmin1 && <button className="btn" onClick={()=>{setEditFeeVals({});setShowEditFees(true);}} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:14,fontSize:15,padding:"15px"}}>Edit Fee Structure</button>}
           <div className="clist">
             {GRADES.map(g=>(
               <div key={g} className="lcard">
@@ -904,7 +973,7 @@ export default function Dashboard({ user }) {
                           <div style={{fontSize:11,color:"#94a3b8"}}>{p.date||"—"} · {p.method||"Cash"}{p.notes?` · ${p.notes}`:""}</div>
                           {p.syncedFromOffline&&<span style={{fontSize:10,background:"#ede4f5",color:"#7B2D8B",borderRadius:99,padding:"1px 7px",fontWeight:600}}>Offline sync</span>}
                         </div>
-                        <button className="btn" onClick={()=>setDelPayConfirm(p)} style={{background:"#fee2e2",color:"#ef4444",fontSize:11,padding:"6px 12px"}}>Delete</button>
+                        {isAdmin1 && <button className="btn" onClick={()=>setDelPayConfirm(p)} style={{background:"#fee2e2",color:"#ef4444",fontSize:11,padding:"6px 12px"}}>Delete</button>}
                       </div>
                     ))}
                   </div>
@@ -936,6 +1005,9 @@ export default function Dashboard({ user }) {
                 LEARNER_DELETED:       {label:"Learner Removed",     color:"#f43f5e", bg:"#fff5f5"},
                 LEARNER_EDITED:        {label:"Learner Updated",     color:"#f59e0b", bg:"#fffbeb"},
                 FEES_UPDATED:          {label:"Fees Updated",        color:"#06b6d4", bg:"#ecfeff"},
+                USER_CREATED:          {label:"User Created",         color:"#7B2D8B", bg:"#faf5ff"},
+                USER_ROLE_CHANGED:     {label:"Role Changed",         color:"#f59e0b", bg:"#fffbeb"},
+                USER_REMOVED:          {label:"User Removed",         color:"#f43f5e", bg:"#fff5f5"},
               }[log.action] || {label:log.action, color:"#94a3b8", bg:"#f8fafc"};
               return (
                 <div key={log.id} style={{background:cfg.bg,border:`1px solid ${cfg.color}22`,borderRadius:14,padding:"12px 16px",borderLeft:`4px solid ${cfg.color}`}}>
@@ -959,6 +1031,48 @@ export default function Dashboard({ user }) {
         {activeTab==="whatsapp"  && <WhatsApp learners={enriched} feeStructure={fees} activeTerm={activeTerm} user={user}/>}
         {activeTab==="annual"    && <AnnualSummary payments={payments} salaryPayments={[]} expenses={[]} staff={learners} feeStructure={fees}/>}
         {activeTab==="pettycash" && <PettyCash user={user}/>}
+
+        {/* USERS */}
+        {activeTab==="users" && isAdmin1 && <>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>User Management</div>
+              <div style={{fontSize:12,color:"#94a3b8",marginTop:2}}>{appUsers.length} account{appUsers.length!==1?"s":""} registered</div>
+            </div>
+            <button className="btn" onClick={()=>setShowAddUser(true)} style={{background:"#7B2D8B",color:"#fff",fontSize:13,padding:"10px 18px",display:"flex",alignItems:"center",gap:7}}><IconUserPlus size={15}/>Add User</button>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {appUsers.map(u=>(
+              <div key={u.id} className="card" style={{padding:"16px 18px",display:"flex",alignItems:"center",gap:14}}>
+                <div style={{width:42,height:42,borderRadius:"50%",background:u.role==="admin1"?"#22073A":"#1e3a5f",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <IconShield size={18} style={{color:u.role==="admin1"?"#D4A820":"#60a5fa"}}/>
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:14,color:"#1e293b",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{u.name||u.email}</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{u.email}</div>
+                  <div style={{marginTop:5}}>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:u.role==="admin1"?"rgba(212,168,32,.15)":"rgba(96,165,250,.15)",color:u.role==="admin1"?"#D4A820":"#60a5fa",letterSpacing:".04em"}}>
+                      {u.role==="admin1"?"Admin 1 — Full Access":"Admin 2 — Finance Only"}
+                    </span>
+                  </div>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-end"}}>
+                  {u.id !== user.uid && (
+                    <select className="inp" value={u.role} onChange={e=>handleUpdateUserRole(u.id,e.target.value)} style={{fontSize:12,padding:"7px 10px",width:"auto",minWidth:110,borderColor:"#e2e8f0"}}>
+                      <option value="admin1">Admin 1</option>
+                      <option value="admin2">Admin 2</option>
+                    </select>
+                  )}
+                  {u.id === user.uid && <span style={{fontSize:11,color:"#94a3b8",fontStyle:"italic"}}>You</span>}
+                  {u.id !== user.uid && (
+                    <button className="btn" onClick={()=>setDelUserConfirm(u)} style={{background:"#fee2e2",color:"#ef4444",fontSize:11,padding:"6px 12px"}}>Remove</button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {appUsers.length===0&&<div className="card" style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:14}}>No users yet.</div>}
+          </div>
+        </>}
 
       </main>
 
@@ -1207,6 +1321,62 @@ export default function Dashboard({ user }) {
             <div style={{display:"flex",gap:10}}>
               <button className="btn" onClick={()=>setDelConfirm(null)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
               <button className="btn" onClick={()=>handleDeleteLearner(delConfirm.id)} style={{background:"#ef4444",color:"#fff",flex:1}}>Yes, Remove</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ADD USER MODAL ───────────────────────────────── */}
+      {showAddUser && (
+        <div className="overlay" onClick={()=>setShowAddUser(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-handle"/>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:800,marginBottom:6}}>Add User</div>
+            <p style={{fontSize:13,color:"#94a3b8",marginBottom:22}}>Create a new login account for Jemareen Academy.</p>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              {[
+                {label:"Full Name *",     key:"name",     type:"text",     ph:"e.g. Grace Banda"},
+                {label:"Email Address *", key:"email",    type:"email",    ph:"e.g. grace@jemareen.edu"},
+                {label:"Password *",      key:"password", type:"password", ph:"Min. 6 characters"},
+              ].map(f=>(
+                <div key={f.key}>
+                  <label style={{fontSize:11,fontWeight:700,color:"#94a3b8",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>{f.label}</label>
+                  <input className="inp" type={f.type} placeholder={f.ph} value={newUser[f.key]} onChange={e=>setNewUser(p=>({...p,[f.key]:e.target.value}))}/>
+                </div>
+              ))}
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:"#94a3b8",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>Role *</label>
+                <select className="inp" value={newUser.role} onChange={e=>setNewUser(p=>({...p,role:e.target.value}))}>
+                  <option value="admin1">Admin 1 — Full Access</option>
+                  <option value="admin2">Admin 2 — Finance Only</option>
+                </select>
+              </div>
+            </div>
+            <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,padding:"10px 14px",marginTop:16,fontSize:12,color:"#92400e"}}>
+              ⚠ The new user will be able to sign in immediately with this email and password.
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              <button className="btn" onClick={()=>setShowAddUser(false)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
+              <button className="btn" onClick={handleCreateUser} style={{background:"#7B2D8B",color:"#fff",flex:2}}>Create Account</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── REMOVE USER CONFIRM ──────────────────────────── */}
+      {delUserConfirm && (
+        <div className="overlay" onClick={()=>setDelUserConfirm(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:360,textAlign:"center"}}>
+            <div className="modal-handle"/>
+            <div style={{color:"#ef4444",display:"flex",justifyContent:"center",marginBottom:14}}><IconWarning size={40}/></div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:800,marginBottom:8}}>Remove User?</div>
+            <p style={{fontSize:13,color:"#64748b",marginBottom:8}}>
+              <strong>{delUserConfirm.name||delUserConfirm.email}</strong> will lose access to the app immediately.
+            </p>
+            <p style={{fontSize:12,color:"#94a3b8",marginBottom:22}}>Their Firebase Auth account will remain, only app access is revoked.</p>
+            <div style={{display:"flex",gap:10}}>
+              <button className="btn" onClick={()=>setDelUserConfirm(null)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
+              <button className="btn" onClick={()=>handleRemoveUser(delUserConfirm.id)} style={{background:"#ef4444",color:"#fff",flex:1}}>Yes, Remove</button>
             </div>
           </div>
         </div>
