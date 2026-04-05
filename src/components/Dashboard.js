@@ -79,6 +79,13 @@ export default function Dashboard({ user }) {
   const [aiLoading, setAiLoading]           = useState(false);
   const [delConfirm, setDelConfirm]         = useState(null);
 
+  // New state variables
+  const [expandedGrades, setExpandedGrades] = useState(() => new Set([...GRADES, ...GRADES.map(g=>g+"_l")]));
+  const toggleGrade = (g) => setExpandedGrades(prev => { const s=new Set(prev); s.has(g)?s.delete(g):s.add(g); return s; });
+  const [editLearner, setEditLearner] = useState(null);
+  const [editLearnerVals, setEditLearnerVals] = useState({});
+  const [learnerSearch, setLearnerSearch] = useState("");
+
   // Form state
   const [newLearner, setNewLearner] = useState({name:"",grade:"Baby Class",parent:"",phone:"",email:""});
   const [newPayment, setNewPayment] = useState({learnerId:"",amount:"",method:"Mobile Money",date:new Date().toISOString().split("T")[0],notes:""});
@@ -161,6 +168,33 @@ export default function Dashboard({ user }) {
     return { grade, total:gl.length, paid:gl.filter(l=>l.status==="paid").length, collected, expected, rate: expected>0?Math.round(collected/expected*100):0 };
   }), [termData]);
 
+  const groupedByGrade = useMemo(() =>
+    GRADES.map(grade => ({
+      grade,
+      learners: filtered.filter(l => l.grade === grade),
+      stats: (() => {
+        const gl = filtered.filter(l => l.grade === grade);
+        const collected = gl.reduce((a,l)=>a+l.totalPaid,0);
+        const expected = gl.reduce((a,l)=>a+l.fee+l.arrears,0);
+        return { total: gl.length, paid: gl.filter(l=>l.status==="paid").length, collected, expected, rate: expected>0?Math.round(collected/expected*100):0 };
+      })()
+    })).filter(g => g.learners.length > 0),
+  [filtered]);
+
+  const filteredLearners = useMemo(() => {
+    let rows = enriched;
+    if (gradeFilter !== "All Grades") rows = rows.filter(l => l.grade === gradeFilter);
+    if (learnerSearch) rows = rows.filter(l => l.name?.toLowerCase().includes(learnerSearch.toLowerCase()) || l.parent?.toLowerCase().includes(learnerSearch.toLowerCase()));
+    return rows;
+  }, [enriched, gradeFilter, learnerSearch]);
+
+  const groupedLearners = useMemo(() =>
+    GRADES.map(grade => ({
+      grade,
+      learners: filteredLearners.filter(l => l.grade === grade)
+    })).filter(g => g.learners.length > 0),
+  [filteredLearners]);
+
   // ── FIREBASE ACTIONS ───────────────────────────────────────────────────
   const handleAddLearner = async () => {
     if (!newLearner.name || !newLearner.parent || !newLearner.phone) {
@@ -223,6 +257,15 @@ export default function Dashboard({ user }) {
       setEditFeeVals({});
       showToast("Fee structure saved!");
     } catch { showToast("Failed to save fees.", "err"); }
+  };
+
+  const handleEditLearner = async () => {
+    if (!editLearnerVals.name || !editLearnerVals.phone) { showToast("Name and phone required.","err"); return; }
+    try {
+      await updateDoc(doc(db,"learners",editLearner.id), editLearnerVals);
+      setEditLearner(null); setEditLearnerVals({});
+      showToast("Learner updated!");
+    } catch { showToast("Failed to update.","err"); }
   };
 
   const handleSendReminder = (learnerId) => {
@@ -495,9 +538,7 @@ export default function Dashboard({ user }) {
 
         {/* PAYMENTS */}
         {activeTab==="payments" && <>
-          <button className="btn" onClick={()=>setShowAddPayment(true)} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:12,fontSize:15,padding:"14px"}}>
-            Record New Payment
-          </button>
+          <button className="btn" onClick={()=>setShowAddPayment(true)} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:12,fontSize:15,padding:"14px"}}>Record New Payment</button>
           <input className="inp" style={{marginBottom:10}} placeholder="Search learner or parent…" value={searchQ} onChange={e=>setSearchQ(e.target.value)}/>
           <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:6,marginBottom:12}}>
             <select className="inp" style={{minWidth:148,flex:"0 0 auto",fontSize:"14px!important"}} value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)}>
@@ -509,59 +550,143 @@ export default function Dashboard({ user }) {
               </button>
             ))}
           </div>
-          <div className="clist">
-            {filtered.map(l=>{
-              const cfg=STATUS_CFG[l.status];
-              return (
-                <div key={l.id} className="lcard" onClick={()=>setShowReceipt(l)}>
-                  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
-                    <div style={{width:42,height:42,borderRadius:"50%",background:avatarColor(l.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(l.name)}</div>
-                    <div style={{flex:1}}><div style={{fontSize:15,fontWeight:700}}>{l.name}</div><div style={{fontSize:12,color:"#94a3b8"}}>{l.grade} · {l.parent}</div></div>
-                    <span className="tag" style={{background:cfg.bg,color:cfg.color}}>{cfg.label}</span>
+          {groupedByGrade.length===0 && <div style={{textAlign:"center",padding:40,color:"#94a3b8"}}>No records match.</div>}
+          {groupedByGrade.map(({grade,learners:gLearners,stats:gs})=>(
+            <div key={grade} style={{marginBottom:14}}>
+              {/* Grade Header */}
+              <button className="nb" onClick={()=>toggleGrade(grade)} style={{width:"100%",marginBottom:expandedGrades.has(grade)?8:0}}>
+                <div style={{background:"linear-gradient(135deg,#22073A,#3D1445)",borderRadius:expandedGrades.has(grade)?"14px 14px 0 0":"14px",padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{background:"rgba(255,255,255,.12)",borderRadius:8,padding:"4px 10px"}}>
+                      <span style={{fontSize:13,fontWeight:800,color:"#D4A820"}}>{grade}</span>
+                    </div>
+                    <span style={{fontSize:12,color:"rgba(255,255,255,.55)"}}>{gLearners.length} learner{gLearners.length!==1?"s":""}</span>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:l.status!=="paid"?12:0}}>
-                    {[["Fee",fmt(l.fee),"#475569","#FFFFFF"],["Paid",fmt(l.totalPaid),"#10b981","#f0fdf4"],["Balance",fmt(l.balance),l.balance>0?"#f43f5e":"#94a3b8",l.balance>0?"#fff5f5":"#FFFFFF"]].map(([lab,val,col,bg])=>(
-                      <div key={lab} style={{textAlign:"center",background:bg,borderRadius:10,padding:"9px 4px"}}>
-                        <div style={{fontSize:14,fontWeight:700,color:col}}>{val}</div>
-                        <div style={{fontSize:10,color:"#94a3b8"}}>{lab}</div>
-                      </div>
-                    ))}
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:13,fontWeight:700,color:gs.rate>=80?"#10b981":gs.rate>=50?"#f59e0b":"#f87171"}}>{gs.rate}%</div>
+                      <div style={{fontSize:10,color:"rgba(255,255,255,.4)"}}>collected</div>
+                    </div>
+                    <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,.08)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <span style={{color:"rgba(255,255,255,.6)",fontSize:16,lineHeight:1,transition:"transform .2s",display:"block",transform:expandedGrades.has(grade)?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+                    </div>
                   </div>
-                  {l.status!=="paid"&&<button className="btn" onClick={e=>{e.stopPropagation();handleSendReminder(l.id);}} style={{width:"100%",background:remindersSent.includes(l.id+activeTerm)?"#d1fae5":"#F3EDF7",color:remindersSent.includes(l.id+activeTerm)?"#065f46":"#64748b",fontSize:13}}>{remindersSent.includes(l.id+activeTerm)?"✓ Reminder Sent":"Send Reminder"}</button>}
                 </div>
-              );
-            })}
-            {filtered.length===0&&<div style={{textAlign:"center",padding:40,color:"#94a3b8"}}>No records match.</div>}
-          </div>
+                {/* Grade mini progress bar */}
+                <div style={{height:4,background:"rgba(34,7,58,.15)",borderRadius:expandedGrades.has(grade)?"0":"0 0 4px 4px",overflow:"hidden",display:expandedGrades.has(grade)?"block":"none"}}>
+                  <div style={{height:"100%",background:gs.rate>=80?"#10b981":gs.rate>=50?"#f59e0b":"#f87171",width:`${gs.rate}%`,transition:"width .8s"}}/>
+                </div>
+              </button>
+              {/* Learner cards */}
+              {expandedGrades.has(grade) && (
+                <div style={{border:"1px solid #e2e8f0",borderTop:"none",borderRadius:"0 0 14px 14px",overflow:"hidden",background:"#fff"}}>
+                  {gLearners.map((l,i)=>{
+                    const cfg=STATUS_CFG[l.status];
+                    return (
+                      <div key={l.id} style={{padding:"14px 16px",borderBottom:i<gLearners.length-1?"1px solid #f1f5f9":"none",cursor:"pointer",transition:"background .15s"}}
+                        onClick={()=>setShowReceipt(l)}
+                        onMouseEnter={e=>e.currentTarget.style.background="#FAF7FD"}
+                        onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                        <div style={{display:"flex",alignItems:"center",gap:12}}>
+                          <div style={{width:40,height:40,borderRadius:"50%",background:avatarColor(l.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(l.name)}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:2}}>{l.name}</div>
+                            <div style={{fontSize:11,color:"#94a3b8"}}>{l.parent||"—"} {l.phone?`· ${l.phone}`:""}</div>
+                          </div>
+                          <div style={{textAlign:"right",flexShrink:0}}>
+                            <span className="tag" style={{background:cfg.bg,color:cfg.color,marginBottom:4,display:"block"}}>{cfg.label}</span>
+                            <div style={{fontSize:12,color:"#94a3b8"}}>{fmt(l.totalPaid)}<span style={{color:"#e2e8f0"}}>/</span><span style={{color:l.balance>0?"#f43f5e":"#94a3b8"}}>{fmt(l.fee)}</span></div>
+                          </div>
+                        </div>
+                        {l.balance>0&&(
+                          <div style={{marginTop:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                            <div style={{flex:1,height:4,background:"#f1f5f9",borderRadius:99,overflow:"hidden",marginRight:12}}>
+                              <div style={{height:"100%",background:l.totalPaid/l.fee>=.8?"#10b981":l.totalPaid/l.fee>=.5?"#f59e0b":"#f87171",width:`${Math.min(100,(l.totalPaid/(l.fee+l.arrears||1))*100)}%`,borderRadius:99,transition:"width .5s"}}/>
+                            </div>
+                            <button className="btn" onClick={e=>{e.stopPropagation();handleSendReminder(l.id);}} style={{padding:"5px 12px",fontSize:11,background:remindersSent.includes(l.id+activeTerm)?"#d1fae5":"#fef3c7",color:remindersSent.includes(l.id+activeTerm)?"#065f46":"#92400e",borderRadius:8}}>
+                              {remindersSent.includes(l.id+activeTerm)?"✓ Sent":"Remind"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Grade summary footer */}
+                  <div style={{background:"#FAFBFC",borderTop:"1px solid #f1f5f9",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:11,color:"#94a3b8",fontWeight:500}}>Collected: <strong style={{color:"#10b981"}}>{fmt(gs.collected)}</strong></span>
+                    <span style={{fontSize:11,color:"#94a3b8",fontWeight:500}}>Outstanding: <strong style={{color:"#f43f5e"}}>{fmt(gs.expected-gs.collected)}</strong></span>
+                    <span style={{fontSize:11,color:"#94a3b8",fontWeight:500}}>Paid: <strong style={{color:"#7B2D8B"}}>{gs.paid}/{gs.total}</strong></span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </>}
 
         {/* LEARNERS */}
         {activeTab==="learners" && <>
-          <button className="btn" onClick={()=>setShowAddLearner(true)} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:14,fontSize:15,padding:"15px"}}>+ Add New Learner</button>
-          <div className="clist">
-            {enriched.map(l=>{
-              const cfg=STATUS_CFG[l.status];
-              return (
-                <div key={l.id} className="lcard">
-                  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
-                    <div style={{width:44,height:44,borderRadius:"50%",background:avatarColor(l.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(l.name)}</div>
-                    <div style={{flex:1}}><div style={{fontSize:15,fontWeight:700}}>{l.name}</div><div style={{fontSize:12,color:"#94a3b8"}}>{l.grade}</div></div>
-                    <span className="tag" style={{background:cfg.bg,color:cfg.color}}>{cfg.label}</span>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                    <div><div style={{fontSize:10,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".06em"}}>Parent</div><div style={{fontSize:14,fontWeight:500,marginTop:2}}>{l.parent}</div></div>
-                    <div><div style={{fontSize:10,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".06em"}}>Phone</div><div style={{fontSize:14,fontWeight:500,marginTop:2}}>{l.phone}</div></div>
-                  </div>
-                  <div style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid #f1f5f9",marginBottom:10}}>
-                    <span style={{fontSize:14,fontWeight:700,color:"#10b981"}}>Paid: {fmt(l.totalPaid)}</span>
-                    <span style={{fontSize:14,fontWeight:700,color:l.balance>0?"#f43f5e":"#94a3b8"}}>Bal: {fmt(l.balance)}</span>
-                  </div>
-                  <button className="btn" onClick={()=>setDelConfirm(l)} style={{width:"100%",background:"#fee2e2",color:"#ef4444",fontSize:13}}>Remove Learner</button>
-                </div>
-              );
-            })}
-            {enriched.length===0&&<div className="card" style={{padding:48,textAlign:"center",color:"#94a3b8"}}><div style={{color:"#D4A820",display:"flex",justifyContent:"center",marginBottom:12}}><IconSchool size={44}/></div><div style={{fontWeight:600,marginBottom:10}}>No learners yet</div><button className="btn" onClick={()=>setShowAddLearner(true)} style={{background:"#7B2D8B",color:"#fff"}}>Add First Learner</button></div>}
+          <div style={{display:"flex",gap:10,marginBottom:14}}>
+            <input className="inp" placeholder="Search learners…" value={learnerSearch} onChange={e=>setLearnerSearch(e.target.value)} style={{flex:1}}/>
+            <button className="btn" onClick={()=>setShowAddLearner(true)} style={{background:"#7B2D8B",color:"#fff",flexShrink:0,fontSize:14,padding:"12px 18px"}}>+ Add</button>
           </div>
+          <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:6,marginBottom:12}}>
+            <button className="pill" onClick={()=>setGradeFilter("All Grades")} style={{flex:"0 0 auto",background:gradeFilter==="All Grades"?"#7B2D8B22":"#F3EDF7",color:gradeFilter==="All Grades"?"#7B2D8B":"#64748b",border:`1px solid ${gradeFilter==="All Grades"?"#7B2D8B44":"#e2e8f0"}`}}>All</button>
+            {GRADES.map(g=>(
+              <button key={g} className="pill" onClick={()=>setGradeFilter(g==="All Grades"?"All Grades":g)} style={{flex:"0 0 auto",background:gradeFilter===g?"#7B2D8B22":"#F3EDF7",color:gradeFilter===g?"#7B2D8B":"#64748b",border:`1px solid ${gradeFilter===g?"#7B2D8B44":"#e2e8f0"}`,whiteSpace:"nowrap"}}>{g}</button>
+            ))}
+          </div>
+          {groupedLearners.length===0&&<div className="card" style={{padding:48,textAlign:"center",color:"#94a3b8"}}><div style={{color:"#D4A820",display:"flex",justifyContent:"center",marginBottom:12}}><IconSchool size={44}/></div><div style={{fontWeight:600,marginBottom:10}}>No learners found</div><button className="btn" onClick={()=>setShowAddLearner(true)} style={{background:"#7B2D8B",color:"#fff"}}>Add First Learner</button></div>}
+          {groupedLearners.map(({grade,learners:gLearners})=>(
+            <div key={grade} style={{marginBottom:16}}>
+              <button className="nb" onClick={()=>toggleGrade(grade+"_l")} style={{width:"100%",marginBottom:expandedGrades.has(grade+"_l")||!expandedGrades.has(grade+"_l")?8:0}}>
+                <div style={{background:"linear-gradient(135deg,#22073A,#3D1445)",borderRadius:expandedGrades.has(grade+"_l")?"14px 14px 0 0":"14px",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:13,fontWeight:800,color:"#D4A820"}}>{grade}</span>
+                    <span style={{fontSize:12,color:"rgba(255,255,255,.5)",background:"rgba(255,255,255,.08)",borderRadius:99,padding:"2px 8px"}}>{gLearners.length}</span>
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    {[["paid","#10b981"],["partial","#f59e0b"],["unpaid","#60a5fa"],["overdue","#f43f5e"]].map(([s,c])=>{
+                      const cnt=gLearners.filter(l=>l.status===s).length;
+                      return cnt>0?<span key={s} style={{fontSize:11,color:c,background:c+"22",borderRadius:99,padding:"2px 7px",fontWeight:700}}>{cnt}</span>:null;
+                    })}
+                    <span style={{color:"rgba(255,255,255,.5)",fontSize:14}}>▾</span>
+                  </div>
+                </div>
+              </button>
+              {(expandedGrades.has(grade+"_l")||!expandedGrades.has(grade+"_l")?true:false) && (
+                <div style={{border:"1px solid #e2e8f0",borderTop:"none",borderRadius:"0 0 14px 14px",overflow:"hidden",background:"#fff"}}>
+                  {gLearners.map((l,i)=>{
+                    const cfg=STATUS_CFG[l.status];
+                    return (
+                      <div key={l.id} style={{padding:"14px 16px",borderBottom:i<gLearners.length-1?"1px solid #f1f5f9":"none"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+                          <div style={{width:42,height:42,borderRadius:"50%",background:avatarColor(l.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(l.name)}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:15,fontWeight:700,color:"#1e293b"}}>{l.name}</div>
+                            <div style={{fontSize:12,color:"#94a3b8"}}>{l.parent||"No parent recorded"}{l.phone?` · ${l.phone}`:""}</div>
+                          </div>
+                          <span className="tag" style={{background:cfg.bg,color:cfg.color,flexShrink:0}}>{cfg.label}</span>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+                          {[["Fee",fmt(l.fee),"#475569"],["Paid",fmt(l.totalPaid),"#10b981"],["Balance",fmt(l.balance),l.balance>0?"#f43f5e":"#94a3b8"]].map(([lab,val,col])=>(
+                            <div key={lab} style={{textAlign:"center",background:"#F8FAFC",borderRadius:10,padding:"8px 4px"}}>
+                              <div style={{fontSize:13,fontWeight:700,color:col}}>{val}</div>
+                              <div style={{fontSize:10,color:"#94a3b8"}}>{lab}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{display:"flex",gap:8}}>
+                          <button className="btn" onClick={()=>{setEditLearner(l);setEditLearnerVals({name:l.name,grade:l.grade,parent:l.parent||"",phone:l.phone||"",email:l.email||""});}} style={{flex:1,background:"#EDE4F5",color:"#7B2D8B",fontSize:12,padding:"9px"}}>Edit</button>
+                          <button className="btn" onClick={()=>setShowReceipt(l)} style={{flex:1,background:"#e0f2fe",color:"#0369a1",fontSize:12,padding:"9px"}}>Receipt</button>
+                          <button className="btn" onClick={()=>setDelConfirm(l)} style={{flex:1,background:"#fee2e2",color:"#ef4444",fontSize:12,padding:"9px"}}>Remove</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
         </>}
 
         {/* REMINDERS */}
@@ -659,6 +784,7 @@ export default function Dashboard({ user }) {
           );
         })}
       </nav>
+
       {/* ── ADD LEARNER MODAL ──────────────────────────── */}
       {showAddLearner && (
         <div className="overlay" onClick={()=>setShowAddLearner(false)}>
@@ -786,7 +912,24 @@ export default function Dashboard({ user }) {
                   </div>
                 ))}
               </div>
-              <button className="btn" onClick={()=>setShowReceipt(null)} style={{width:"100%",background:"#7B2D8B",color:"#fff"}}>Close</button>
+              {l.termPayments && l.termPayments.length>0&&(
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>Payment History</div>
+                  {l.termPayments.map((p,i)=>(
+                    <div key={p.id||i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:i%2===0?"#F8FAFC":"#fff",borderRadius:8,marginBottom:4}}>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>{fmt(p.amount)}</div>
+                        <div style={{fontSize:11,color:"#94a3b8"}}>{p.date||"—"} · {p.method||"—"}</div>
+                      </div>
+                      {p.notes&&<div style={{fontSize:11,color:"#94a3b8",maxWidth:"50%",textAlign:"right",wordBreak:"break-word"}}>{p.notes}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{display:"flex",gap:8}}>
+                <button className="btn" onClick={()=>{setShowReceipt(null);setShowAddPayment(true);setNewPayment(p=>({...p,learnerId:l.id}));}} style={{flex:1,background:"#EDE4F5",color:"#7B2D8B",fontSize:13}}>+ Pay</button>
+                <button className="btn" onClick={()=>setShowReceipt(null)} style={{flex:2,background:"#7B2D8B",color:"#fff"}}>Close</button>
+              </div>
             </div>
           </div>
         );
@@ -810,6 +953,35 @@ export default function Dashboard({ user }) {
             <div style={{display:"flex",gap:10,marginTop:22}}>
               <button className="btn" onClick={()=>setShowEditFees(false)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
               <button className="btn" onClick={handleSaveFees} style={{background:"#7B2D8B",color:"#fff",flex:2}}>Save to Firebase</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EDIT LEARNER MODAL ─────────────────────────────── */}
+      {editLearner && (
+        <div className="overlay" onClick={()=>setEditLearner(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-handle"/>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:800,marginBottom:4}}>Edit Learner</div>
+            <p style={{fontSize:12,color:"#94a3b8",marginBottom:20}}>Update details for {editLearner.name}</p>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              {[{label:"Full Name *",key:"name",type:"text"},{label:"Parent/Guardian",key:"parent",type:"text"},{label:"Phone",key:"phone",type:"tel"},{label:"Email",key:"email",type:"email"}].map(f=>(
+                <div key={f.key}>
+                  <label style={{fontSize:11,fontWeight:700,color:"#94a3b8",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:".06em"}}>{f.label}</label>
+                  <input className="inp" type={f.type} value={editLearnerVals[f.key]||""} onChange={e=>setEditLearnerVals(p=>({...p,[f.key]:e.target.value}))}/>
+                </div>
+              ))}
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:"#94a3b8",display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:".06em"}}>Grade</label>
+                <select className="inp" value={editLearnerVals.grade||""} onChange={e=>setEditLearnerVals(p=>({...p,grade:e.target.value}))}>
+                  {GRADES.map(g=><option key={g}>{g}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              <button className="btn" onClick={()=>setEditLearner(null)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
+              <button className="btn" onClick={handleEditLearner} style={{background:"#7B2D8B",color:"#fff",flex:2}}>Save Changes</button>
             </div>
           </div>
         </div>
