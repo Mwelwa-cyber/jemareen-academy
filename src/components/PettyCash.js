@@ -47,7 +47,6 @@ export default function PettyCash({ user }) {
     const balance       = totalTopUps - totalSpent;
     const todayStr      = new Date().toISOString().split("T")[0];
     const todaySpent    = entries.filter(e=>e.type==="expense"&&e.date===todayStr).reduce((a,e)=>a+Number(e.amount||0),0);
-    const thisMonth     = new Date().toLocaleString("default",{month:"long"});
     const monthSpent    = entries.filter(e=>e.type==="expense"&&e.date?.includes(new Date().getFullYear())&&e.date?.slice(5,7)===String(new Date().getMonth()+1).padStart(2,"0")).reduce((a,e)=>a+Number(e.amount||0),0);
     return { totalTopUps, totalSpent, balance, todaySpent, monthSpent };
   }, [entries]);

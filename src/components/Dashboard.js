@@ -311,7 +311,7 @@ export default function Dashboard({ user }) {
         @keyframes drawerIn{from{transform:translateX(-100%)}to{transform:translateX(0)}}
         .drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99;backdrop-filter:blur(2px);}
         .drawer{position:fixed;top:0;left:0;height:100vh;width:285px;background:#fff;z-index:100;display:flex;flex-direction:column;box-shadow:4px 0 32px rgba(0,0,0,.15);animation:drawerIn .25s ease;}
-        .mobile-hdr{position:sticky;top:0;z-index:40;background:#fff;border-bottom:1px solid #f1f5f9;padding:13px 16px;display:flex;align-items:center;gap:12px;}
+        .mobile-hdr{position:sticky;top:0;z-index:40;background:#fff;box-shadow:0 1px 12px rgba(61,20,69,.08);padding:13px 16px;display:flex;align-items:center;gap:12px;}
         .bottom-bar{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1.5px solid #f1f5f9;display:flex;z-index:40;padding-bottom:env(safe-area-inset-bottom,0px);}
         .bottom-bar button{flex:1;border:none;background:none;font-family:inherit;cursor:pointer;padding:10px 2px 8px;display:flex;flex-direction:column;align-items:center;gap:3px;}
         .pg{padding:14px 14px 100px;}
@@ -332,20 +332,22 @@ export default function Dashboard({ user }) {
           .toast-w{bottom:22px;left:auto;right:22px;transform:none;}
           @keyframes toastUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
         }
-        .d-aside{display:none;position:fixed;top:0;left:0;height:100vh;width:224px;background:#3D1445;border-right:none;flex-direction:column;padding:0;z-index:50;overflow-y:auto;}
+        .d-aside{display:none;position:fixed;top:0;left:0;height:100vh;width:224px;background:linear-gradient(180deg,#22073A 0%,#3D1445 45%,#2d0e3d 100%);border-right:none;flex-direction:column;padding:0;z-index:50;overflow-y:auto;box-shadow:4px 0 28px rgba(0,0,0,.22);}
       `}</style>
 
       {/* DESKTOP SIDEBAR */}
       <aside className="d-aside">
-        <div style={{padding:"18px 16px 14px",borderBottom:"1px solid rgba(255,255,255,.08)"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <img src={LOGO} alt="Logo" style={{width:42,height:42,flexShrink:0,filter:"drop-shadow(0 2px 8px rgba(0,0,0,.3))"}}/>
+        <div style={{padding:"20px 16px 16px",borderBottom:"1px solid rgba(255,255,255,.07)",background:"rgba(0,0,0,.12)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:11}}>
+            <div style={{width:46,height:46,borderRadius:"50%",background:"rgba(255,255,255,.1)",border:"1.5px solid rgba(255,255,255,.18)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:"0 0 20px rgba(212,168,32,.2)"}}>
+              <img src={LOGO} alt="Logo" style={{width:34,height:34,filter:"drop-shadow(0 2px 6px rgba(0,0,0,.3))"}}/>
+            </div>
             <div>
               <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,fontWeight:800,color:"#fff",lineHeight:1.25}}>Jemareen<br/>Academy</div>
-              <div style={{fontSize:9,color:"#D4A820",marginTop:2,letterSpacing:".08em",textTransform:"uppercase",fontWeight:600}}>EduPay Finance</div>
+              <div style={{fontSize:9,color:"#D4A820",marginTop:3,letterSpacing:".09em",textTransform:"uppercase",fontWeight:700}}>EduPay Finance</div>
             </div>
           </div>
-          <div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:10,fontStyle:"italic",lineHeight:1.5}}>"Bringing out the best in children"</div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,.35)",marginTop:10,fontStyle:"italic",lineHeight:1.5,letterSpacing:".01em"}}>"Bringing out the best in children"</div>
         </div>
         <div style={{padding:"10px 10px 6px"}}>
           <div style={{fontSize:9,color:"rgba(255,255,255,.3)",letterSpacing:".1em",textTransform:"uppercase",padding:"0 10px",marginBottom:4}}>Term</div>
@@ -427,42 +429,52 @@ export default function Dashboard({ user }) {
           <div className="g2" style={{marginBottom:14}}>
             {[
               {label:"Expected",    val:fmt(stats.expected),    sub:`${activeTerm}`,  accent:"#7B2D8B"},
-              {label:"Collected",   val:fmt(stats.collected),   sub:`${stats.rate}%`, accent:"#10b981"},
+              {label:"Collected",   val:fmt(stats.collected),   sub:`${stats.rate}% collected`, accent:"#10b981"},
               {label:"Outstanding", val:fmt(stats.outstanding), sub:"remaining",      accent:"#f43f5e"},
               {label:"Arrears",     val:fmt(stats.arrears),     sub:"carried fwd",    accent:"#f59e0b"},
             ].map(k=>(
-              <div key={k.label} className="card" style={{padding:16}}>
-                <div style={{fontSize:10,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".07em",marginBottom:8}}>{k.label}</div>
-                <div style={{fontSize:20,fontWeight:800,color:k.accent,fontFamily:"'Playfair Display',serif"}}>{k.val}</div>
-                <div style={{fontSize:11,color:"#94a3b8",marginTop:3}}>{k.sub}</div>
+              <div key={k.label} className="card" style={{padding:"14px 14px 14px",borderTop:`3px solid ${k.accent}`,overflow:"hidden",position:"relative"}}>
+                <div style={{position:"absolute",top:0,right:0,width:56,height:56,background:k.accent,opacity:.07,borderRadius:"0 0 0 56px",pointerEvents:"none"}}/>
+                <div style={{fontSize:9,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".08em",marginBottom:7,fontWeight:600}}>{k.label}</div>
+                <div style={{fontSize:18,fontWeight:800,color:k.accent,fontFamily:"'Playfair Display',serif",lineHeight:1.15}}>{k.val}</div>
+                <div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>{k.sub}</div>
               </div>
             ))}
           </div>
-          <div className="card" style={{padding:20,marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontWeight:700,fontSize:15}}>Collection Progress</div>
-              <div style={{fontWeight:800,fontSize:20,color:"#7B2D8B"}}>{stats.rate}%</div>
+          <div className="card" style={{padding:20,marginBottom:14,overflow:"hidden",position:"relative"}}>
+            <div style={{position:"absolute",top:0,right:0,width:120,height:80,background:"linear-gradient(135deg,rgba(123,45,139,.06),transparent)",pointerEvents:"none"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:15,color:"#1e293b"}}>Collection Progress</div>
+                <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>{activeTerm}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontWeight:800,fontSize:26,color:"#7B2D8B",fontFamily:"'Playfair Display',serif",lineHeight:1}}>{stats.rate}%</div>
+                <div style={{fontSize:10,color:"#94a3b8",marginTop:2}}>collected</div>
+              </div>
             </div>
-            <div className="bar" style={{marginBottom:16}}><div className="bf" style={{width:`${stats.rate}%`,background:"linear-gradient(90deg,#7B2D8B,#10b981)"}}/></div>
+            <div style={{background:"#f1e8f7",borderRadius:99,height:10,overflow:"hidden",marginBottom:16}}>
+              <div style={{height:"100%",borderRadius:99,background:"linear-gradient(90deg,#7B2D8B 0%,#B44AC0 50%,#10b981 100%)",width:`${stats.rate}%`,transition:"width .8s cubic-bezier(.4,0,.2,1)",boxShadow:"0 2px 8px rgba(123,45,139,.3)"}}/>
+            </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
               {Object.entries(STATUS_CFG).map(([k,v])=>(
-                <div key={k} style={{background:v.bg,borderRadius:10,padding:"10px 6px",textAlign:"center"}}>
-                  <div style={{fontSize:18,fontWeight:800,color:v.color}}>{stats[k]||0}</div>
-                  <div style={{fontSize:10,color:v.color,fontWeight:600,marginTop:2}}>{v.label}</div>
+                <div key={k} style={{background:v.bg,borderRadius:12,padding:"10px 6px",textAlign:"center",borderTop:`2px solid ${v.color}22`}}>
+                  <div style={{fontSize:20,fontWeight:800,color:v.color,lineHeight:1}}>{stats[k]||0}</div>
+                  <div style={{fontSize:10,color:v.color,fontWeight:600,marginTop:3}}>{v.label}</div>
                 </div>
               ))}
             </div>
           </div>
           <div className="card" style={{padding:18,marginBottom:14}}>
-            <div style={{fontWeight:700,fontSize:15,marginBottom:12}}>Quick Actions</div>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:12,color:"#1e293b"}}>Quick Actions</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               {[
-                {label:"+ Add Learner",    action:()=>setShowAddLearner(true),  color:"#7B2D8B"},
-                {label:"+ Record Payment", action:()=>setShowAddPayment(true),  color:"#10b981"},
+                {label:"Add Learner",    action:()=>setShowAddLearner(true),  color:"#7B2D8B"},
+                {label:"Record Payment", action:()=>setShowAddPayment(true),  color:"#10b981"},
                 {label:"WhatsApp",      action:()=>setActiveTab("whatsapp"), color:"#25D366"},
                 {label:"Annual Report", action:()=>setActiveTab("annual"),   color:"#f59e0b"},
               ].map(a=>(
-                <button key={a.label} className="btn" onClick={a.action} style={{background:a.color+"14",color:a.color,border:`1px solid ${a.color}22`,textAlign:"left",fontSize:13,padding:"13px 14px"}}>{a.label}</button>
+                <button key={a.label} className="btn" onClick={a.action} style={{background:a.color+"18",color:a.color,border:`1.5px solid ${a.color}33`,textAlign:"left",fontSize:13,padding:"13px 14px",borderRadius:14,fontWeight:700}}>{a.label}</button>
               ))}
             </div>
           </div>
