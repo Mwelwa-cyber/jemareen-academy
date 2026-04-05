@@ -38,44 +38,57 @@ export default function Login() {
   };
 
   return (
-    <div style={{minHeight:"100vh",fontFamily:"'Outfit',sans-serif",background:"#3D1445",display:"flex",flexDirection:"column"}}>
+    <div style={{minHeight:"100vh",fontFamily:"'Outfit',sans-serif",background:"linear-gradient(145deg,#1c0929 0%,#3D1445 45%,#5A1F68 80%,#1a0830 100%)",display:"flex",flexDirection:"column"}}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;0,800;1,500&display=swap');
         @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
         @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-        .l-inp{width:100%;background:#F7F3FA;border:2px solid #E2D4EC;border-radius:14px;padding:16px 16px 16px 50px;font-family:'Outfit',sans-serif;font-size:16px;color:#1e293b;outline:none;transition:all .2s;-webkit-appearance:none;}
-        .l-inp:focus{border-color:#7B2D8B;background:#fff;box-shadow:0 0 0 4px rgba(123,45,139,.08);}
-        .l-btn{width:100%;border:none;border-radius:14px;padding:17px;font-family:'Outfit',sans-serif;font-size:16px;font-weight:800;cursor:pointer;transition:all .2s;}
+        @keyframes slideUp{from{opacity:0;transform:translateY(32px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes floatA{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-14px) scale(1.04)}}
+        @keyframes floatB{0%,100%{transform:translateY(0) translateX(0)}33%{transform:translateY(-10px) translateX(8px)}66%{transform:translateY(8px) translateX(-6px)}}
+        @keyframes pulse{0%,100%{opacity:.18}50%{opacity:.28}}
+        .l-inp{width:100%;background:#F7F3FA;border:2px solid #E8D8F4;border-radius:14px;padding:16px 16px 16px 50px;font-family:'Outfit',sans-serif;font-size:16px;color:#1e293b;outline:none;transition:all .2s;-webkit-appearance:none;}
+        .l-inp:focus{border-color:#7B2D8B;background:#fff;box-shadow:0 0 0 4px rgba(123,45,139,.10);}
+        .l-btn{width:100%;border:none;border-radius:14px;padding:17px;font-family:'Outfit',sans-serif;font-size:16px;font-weight:800;cursor:pointer;transition:all .22s;}
+        .l-btn:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.06);}
         .l-btn:active{transform:scale(.97);}
       `}</style>
 
-      {/* Purple brand header */}
-      <div style={{padding:"44px 24px 36px",textAlign:"center",position:"relative",overflow:"hidden",flexShrink:0}}>
-        {/* Decorative orbs */}
-        {[{s:200,t:"-20%",l:"-5%",c:"rgba(212,168,32,.12)"},{s:160,t:"30%",l:"70%",c:"rgba(255,255,255,.05)"}].map((o,i)=>(
-          <div key={i} style={{position:"absolute",top:o.t,left:o.l,width:o.s,height:o.s,borderRadius:"50%",background:o.c,filter:"blur(40px)",pointerEvents:"none"}}/>
-        ))}
+      {/* Rich gradient header */}
+      <div style={{padding:"48px 24px 40px",textAlign:"center",position:"relative",overflow:"hidden",flexShrink:0}}>
+        {/* Layered ambient orbs */}
+        <div style={{position:"absolute",top:"-10%",left:"-8%",width:340,height:340,borderRadius:"50%",background:"rgba(212,168,32,.16)",filter:"blur(90px)",animation:"floatA 9s ease-in-out infinite",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",top:"40%",right:"-5%",width:280,height:280,borderRadius:"50%",background:"rgba(160,60,200,.22)",filter:"blur(80px)",animation:"floatB 11s ease-in-out infinite",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",bottom:"-5%",left:"25%",width:180,height:180,borderRadius:"50%",background:"rgba(123,45,139,.35)",filter:"blur(60px)",animation:"floatA 7s ease-in-out infinite 1s",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",top:"20%",right:"15%",width:110,height:110,borderRadius:"50%",background:"rgba(255,255,255,.05)",filter:"blur(36px)",animation:"pulse 5s ease-in-out infinite",pointerEvents:"none"}}/>
+
         <div style={{position:"relative",zIndex:2}}>
-          <img src={LOGO} alt="Jemareen Academy" style={{width:90,height:90,marginBottom:14,animation:"float 3s ease-in-out infinite",filter:"drop-shadow(0 8px 24px rgba(0,0,0,.3))"}}/>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:"#fff",letterSpacing:"-0.3px",marginBottom:4}}>
+          {/* Logo in frosted glass ring */}
+          <div style={{width:108,height:108,background:"rgba(255,255,255,.1)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderRadius:"50%",border:"1.5px solid rgba(255,255,255,.22)",boxShadow:"0 0 0 10px rgba(255,255,255,.04),0 0 60px rgba(212,168,32,.28),0 12px 40px rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px"}}>
+            <img src={LOGO} alt="Jemareen Academy" style={{width:72,height:72,filter:"drop-shadow(0 4px 12px rgba(0,0,0,.3))"}}/>
+          </div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:800,color:"#fff",letterSpacing:"-0.5px",marginBottom:8,textShadow:"0 2px 20px rgba(0,0,0,.25)"}}>
             Jemareen Academy
           </div>
-          <div style={{fontSize:12,color:"#D4A820",letterSpacing:".12em",textTransform:"uppercase",fontWeight:600}}>
-            EduPay · School Finance System
+          <div style={{display:"flex",alignItems:"center",gap:10,justifyContent:"center",marginBottom:10}}>
+            <div style={{width:28,height:1,background:"rgba(212,168,32,.6)"}}/>
+            <div style={{fontSize:11,color:"#D4A820",letterSpacing:".14em",textTransform:"uppercase",fontWeight:700}}>EduPay · School Finance</div>
+            <div style={{width:28,height:1,background:"rgba(212,168,32,.6)"}}/>
           </div>
-          <div style={{fontSize:13,color:"rgba(255,255,255,.55)",marginTop:10,fontStyle:"italic",letterSpacing:".01em"}}>
+          <div style={{fontSize:13,color:"rgba(255,255,255,.5)",fontStyle:"italic",letterSpacing:".01em"}}>
             "Bringing out the best in children"
           </div>
         </div>
       </div>
 
-      {/* White form card slides up */}
-      <div style={{flex:1,background:"#fff",borderRadius:"28px 28px 0 0",padding:"32px 20px 52px",animation:"slideUp .45s cubic-bezier(.34,1.2,.64,1)"}}>
+      {/* White form card */}
+      <div style={{flex:1,background:"#fff",borderRadius:"32px 32px 0 0",padding:"0 20px 52px",animation:"slideUp .5s cubic-bezier(.34,1.1,.64,1)",boxShadow:"0 -6px 40px rgba(61,20,69,.18)"}}>
+        {/* Top accent bar */}
+        <div style={{height:4,background:"linear-gradient(90deg,#7B2D8B 0%,#B44AC0 40%,#D4A820 70%,#10b981 100%)",borderRadius:"2px 2px 0 0",marginBottom:28}}/>
+
         <div style={{maxWidth:400,margin:"0 auto"}}>
           {resetSent ? (
-            <div style={{textAlign:"center",padding:"24px 0"}}>
+            <div style={{textAlign:"center",padding:"20px 0"}}>
               <div style={{width:64,height:64,background:"rgba(123,45,139,.1)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:"#7B2D8B"}}><IconMail size={30}/></div>
               <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:"#1e293b",marginBottom:8}}>Reset link sent!</div>
               <div style={{fontSize:14,color:"#64748b",lineHeight:1.7,marginBottom:24}}>Check your inbox at <strong>{email}</strong> and follow the link to reset your password.</div>
@@ -128,7 +141,7 @@ export default function Login() {
                 </div>
 
                 <button className="l-btn" type="submit" disabled={loading||!email||!password}
-                  style={{background:(loading||!email||!password)?"#e2e8f0":"linear-gradient(135deg,#7B2D8B,#5A1F68)",color:(loading||!email||!password)?"#94a3b8":"#fff",marginBottom:20}}>
+                  style={{background:(loading||!email||!password)?"#e2e8f0":"linear-gradient(135deg,#9B3DAB 0%,#7B2D8B 50%,#5A1F68 100%)",color:(loading||!email||!password)?"#94a3b8":"#fff",marginBottom:20,boxShadow:(loading||!email||!password)?"none":"0 4px 24px rgba(123,45,139,.4)"}}>
                   {loading ? (
                     <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:12}}>
                       <span style={{width:18,height:18,border:"2.5px solid rgba(255,255,255,.3)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>

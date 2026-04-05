@@ -4,6 +4,11 @@ import {
   query, orderBy, serverTimestamp, doc, setDoc
 } from "firebase/firestore";
 import { db } from "../firebase";
+import {
+  IconDashboard, IconFinance, IconChart, IconFees, IconScale, IconList,
+  IconLightbulb, IconBox, IconTruck, IconStar, IconTool, IconUsers,
+  IconCheck, IconWarning,
+} from "./Icons";
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -12,13 +17,13 @@ const ROLES  = ["Principal","Head Teacher","Class Teacher","Bursar","Admin Offic
 const METHODS= ["Mobile Money","Bank Transfer","Cash","Cheque"];
 
 const EXP_CATEGORIES = [
-  { id:"utilities",   label:"Utilities",         icon:"💡", color:"#f59e0b", desc:"Electricity, water, internet" },
-  { id:"supplies",    label:"Supplies",           icon:"📦", color:"#7B2D8B", desc:"Stationery, books, materials" },
-  { id:"maintenance", label:"Maintenance",        icon:"🔧", color:"#64748b", desc:"Repairs, cleaning, buildings" },
-  { id:"transport",   label:"Transport",          icon:"🚌", color:"#06b6d4", desc:"Fuel, vehicle costs" },
-  { id:"events",      label:"Events & Activities",icon:"🎉", color:"#ec4899", desc:"Sports day, prize giving" },
-  { id:"staff",       label:"Staff Welfare",      icon:"👥", color:"#10b981", desc:"Tea, training, allowances" },
-  { id:"other",       label:"Other",              icon:"📋", color:"#94a3b8", desc:"Miscellaneous expenses" },
+  { id:"utilities",   label:"Utilities",          Icon:IconLightbulb, color:"#f59e0b", desc:"Electricity, water, internet" },
+  { id:"supplies",    label:"Supplies",            Icon:IconBox,       color:"#7B2D8B", desc:"Stationery, books, materials" },
+  { id:"maintenance", label:"Maintenance",         Icon:IconTool,      color:"#64748b", desc:"Repairs, cleaning, buildings" },
+  { id:"transport",   label:"Transport",           Icon:IconTruck,     color:"#06b6d4", desc:"Fuel, vehicle costs" },
+  { id:"events",      label:"Events & Activities", Icon:IconStar,      color:"#ec4899", desc:"Sports day, prize giving" },
+  { id:"staff",       label:"Staff Welfare",       Icon:IconUsers,     color:"#10b981", desc:"Tea, training, allowances" },
+  { id:"other",       label:"Other",               Icon:IconList,      color:"#94a3b8", desc:"Miscellaneous expenses" },
 ];
 
 const ROLE_COLORS = {
@@ -39,15 +44,15 @@ const fmt = n => `K${Number(n||0).toLocaleString()}`;
 
 const calcNAPSA   = gross => Math.round(gross * 0.05);
 const calcAdvance = (advance) => Number(advance || 0);
-const calcNet     = (gross, napsa, advance, loan) => gross - napsa - advance - (loan||0);
+const calcNet     = (gross, napsa, advance, loan) => gross - napsa - calcAdvance(advance) - (loan||0);
 
 const FINANCE_NAV = [
-  { id:"overview",    icon:"◈", label:"Overview"     },
-  { id:"salaries",    icon:"💼", label:"Salaries"     },
-  { id:"expenditure", icon:"📊", label:"Expenditure"  },
-  { id:"budget",      icon:"🎯", label:"Budgets"      },
-  { id:"summary",     icon:"⚖️", label:"Inc vs Exp"   },
-  { id:"reports",     icon:"📋", label:"Reports"      },
+  { id:"overview",    Icon:IconDashboard, label:"Overview"    },
+  { id:"salaries",    Icon:IconFinance,   label:"Salaries"    },
+  { id:"expenditure", Icon:IconChart,     label:"Expenditure" },
+  { id:"budget",      Icon:IconFees,      label:"Budgets"     },
+  { id:"summary",     Icon:IconScale,     label:"Inc vs Exp"  },
+  { id:"reports",     Icon:IconList,      label:"Reports"     },
 ];
 
 // Default term budgets per category
@@ -73,7 +78,7 @@ export default function Finance({ user }) {
   const [activeTab,    setActiveTab]    = useState("overview");
   const [activeTerm,   setActiveTerm]   = useState("Term 1 2026");
   const [activeMonth,  setActiveMonth]  = useState(MONTHS[new Date().getMonth()]);
-  const [activeYear,   setActiveYear]   = useState("2026");
+  const [activeYear] = useState("2026");
   const [filterCat,    setFilterCat]    = useState("all");
   const [searchQ,      setSearchQ]      = useState("");
   const [toast,        setToast]        = useState(null);
@@ -84,7 +89,6 @@ export default function Finance({ user }) {
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showPaySalary,  setShowPaySalary]  = useState(null);
   const [showPayslip,    setShowPayslip]    = useState(null);
-  const [showDelStaff,   setShowDelStaff]   = useState(null);
   const [showEditBudgets,setShowEditBudgets]= useState(false);
   const [editBudgets,    setEditBudgets]    = useState({});
   const [blockedWarning, setBlockedWarning] = useState(null);
@@ -352,7 +356,7 @@ export default function Finance({ user }) {
           {FINANCE_NAV.map(n=>(
           <button key={n.id} className="fn-nb" onClick={()=>setActiveTab(n.id)}
             style={{display:"flex",alignItems:"center",gap:8,padding:"10px 16px",borderRadius:10,fontSize:14,fontWeight:activeTab===n.id?700:500,color:activeTab===n.id?"#7B2D8B":"#64748b",background:activeTab===n.id?"#F3E8F7":"none",width:"auto",whiteSpace:"nowrap"}}>
-            <span style={{fontSize:16}}>{n.icon}</span>{n.label}
+            <n.Icon size={16}/>{n.label}
           </button>
         ))}
         <div style={{width:1,background:"#F0E8F5",margin:"0 4px",flexShrink:0}} />
@@ -369,7 +373,7 @@ export default function Finance({ user }) {
       {(activeTab==="salaries" || activeTab==="expenditure") && (
         <div style={{display:"flex",gap:10,marginBottom:18,flexWrap:"wrap"}}>
           {activeTab==="salaries" && <>
-            <button className="fn-btn" onClick={handlePayAllSalaries} style={{background:"#10b981",color:"#fff",flex:1,minWidth:140}}>✓ Pay All — {activeMonth}</button>
+            <button className="fn-btn" onClick={handlePayAllSalaries} style={{background:"#10b981",color:"#fff",flex:1,minWidth:140,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><IconCheck size={14}/>Pay All — {activeMonth}</button>
             <button className="fn-btn" onClick={()=>setShowAddStaff(true)} style={{background:"#7B2D8B",color:"#fff",flex:1,minWidth:140}}>+ Add Staff</button>
           </>}
           {activeTab==="expenditure" && <button className="fn-btn" onClick={()=>setShowAddExpense(true)} style={{background:"#7B2D8B",color:"#fff",width:"100%"}}>+ Record Expense</button>}
@@ -420,7 +424,7 @@ export default function Finance({ user }) {
               return (
                 <div key={cat.id} style={{marginBottom:14}}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                    <span style={{fontSize:13,color:"#475569"}}>{cat.icon} {cat.label}</span>
+                    <span style={{fontSize:13,color:"#475569",display:"flex",alignItems:"center",gap:6}}><span style={{color:cat.color}}><cat.Icon size={14}/></span>{cat.label}</span>
                     <span style={{fontSize:12,color:"#94a3b8"}}>{fmt(cat.total)} · {pct}%</span>
                   </div>
                   <div className="fn-bar"><div className="fn-bf" style={{width:`${pct}%`,background:cat.color}} /></div>
@@ -464,7 +468,7 @@ export default function Finance({ user }) {
         <div className="fn-card" style={{overflow:"hidden",marginBottom:14}}>
           {activeStaff.length === 0 ? (
             <div style={{padding:48,textAlign:"center",color:"#94a3b8"}}>
-              <div style={{fontSize:36,marginBottom:12}}>👥</div>
+              <div style={{color:"#7B2D8B",display:"flex",justifyContent:"center",marginBottom:12}}><IconUsers size={40}/></div>
               <div style={{fontWeight:600,fontSize:15,marginBottom:8}}>No staff members yet</div>
               <button className="fn-btn" onClick={()=>setShowAddStaff(true)} style={{background:"#7B2D8B",color:"#fff"}}>Add First Staff Member</button>
             </div>
@@ -542,20 +546,20 @@ export default function Finance({ user }) {
           <input className="fn-inp" style={{flex:1,minWidth:180}} placeholder="Search expenses…" value={searchQ} onChange={e=>setSearchQ(e.target.value)} />
           <select className="fn-inp" style={{width:"auto"}} value={filterCat} onChange={e=>setFilterCat(e.target.value)}>
             <option value="all">All Categories</option>
-            {EXP_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+            {EXP_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
           <button className="fn-pill" onClick={()=>setFilterCat("all")} style={{background:filterCat==="all"?"#7B2D8B":"#F0E8F5",color:filterCat==="all"?"#fff":"#64748b",border:"1px solid "+(filterCat==="all"?"#7B2D8B":"#e2e8f0")}}>All</button>
           {EXP_CATEGORIES.map(c=>(
-            <button key={c.id} className="fn-pill" onClick={()=>setFilterCat(c.id)} style={{background:filterCat===c.id?c.color+"22":"#F0E8F5",color:filterCat===c.id?c.color:"#64748b",border:`1px solid ${filterCat===c.id?c.color+"44":"#e2e8f0"}`}}>{c.icon} {c.label}</button>
+            <button key={c.id} className="fn-pill" onClick={()=>setFilterCat(c.id)} style={{background:filterCat===c.id?c.color+"22":"#F0E8F5",color:filterCat===c.id?c.color:"#64748b",border:`1px solid ${filterCat===c.id?c.color+"44":"#e2e8f0"}`,display:"flex",alignItems:"center",gap:5}}><c.Icon size={13}/>{c.label}</button>
           ))}
         </div>
 
         <div className="fn-card" style={{overflow:"hidden"}}>
           {filteredExpenses.length===0 ? (
             <div style={{padding:48,textAlign:"center",color:"#94a3b8"}}>
-              <div style={{fontSize:36,marginBottom:12}}>📦</div>
+              <div style={{color:"#7B2D8B",display:"flex",justifyContent:"center",marginBottom:12}}><IconBox size={40}/></div>
               <div style={{fontWeight:600,fontSize:15,marginBottom:8}}>No expenses yet</div>
               <button className="fn-btn" onClick={()=>setShowAddExpense(true)} style={{background:"#7B2D8B",color:"#fff"}}>Record First Expense</button>
             </div>
@@ -575,7 +579,7 @@ export default function Finance({ user }) {
                   return (
                     <tr key={e.id} className="fn-row" style={{borderBottom:i<filteredExpenses.length-1?"1px solid #f8fafc":"none"}}>
                       <td style={{padding:"12px 14px",fontSize:12,color:"#64748b",whiteSpace:"nowrap"}}>{e.date}</td>
-                      <td style={{padding:"12px 14px"}}><span style={{background:cat.color+"18",color:cat.color,borderRadius:99,padding:"3px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{cat.icon} {cat.label}</span></td>
+                      <td style={{padding:"12px 14px"}}><span style={{background:cat.color+"18",color:cat.color,borderRadius:99,padding:"3px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:4}}><cat.Icon size={11}/>{cat.label}</span></td>
                       <td style={{padding:"12px 14px",fontSize:13,color:"#1e293b",fontWeight:500}}>{e.description}</td>
                       <td style={{padding:"12px 14px",fontSize:14,fontWeight:800,color:"#f43f5e",whiteSpace:"nowrap"}}>{fmt(e.amount)}</td>
                       <td style={{padding:"12px 14px",fontSize:12,color:"#64748b",whiteSpace:"nowrap"}}>{e.method||"—"}</td>
@@ -621,7 +625,7 @@ export default function Finance({ user }) {
               <div key={cat.id} className="fn-card" style={{padding:22,border:`2px solid ${borderC}`,background:bgBorder}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
                   <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <span style={{fontSize:22}}>{cat.icon}</span>
+                    <span style={{color:cat.color}}><cat.Icon size={22}/></span>
                     <div>
                       <div style={{fontWeight:700,fontSize:14,color:"#1e293b"}}>{cat.label}</div>
                       <div style={{fontSize:11,color:"#94a3b8"}}>{cat.desc}</div>
@@ -713,7 +717,7 @@ export default function Finance({ user }) {
             <div className="fn-card" style={{padding:26,marginBottom:18,background:surplus?"#f0fdf4":"#fff5f5",border:`2px solid ${surplus?"#6ee7b7":"#fca5a5"}`}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div>
-                  <div style={{fontWeight:700,fontSize:16,color:"#1e293b",marginBottom:4}}>{surplus?"✅ Surplus":"⚠️ Deficit"} Position</div>
+                  <div style={{fontWeight:700,fontSize:16,color:"#1e293b",marginBottom:4,display:"flex",alignItems:"center",gap:6}}><span style={{color:surplus?"#10b981":"#f43f5e"}}>{surplus?<IconCheck size={16}/>:<IconWarning size={16}/>}</span>{surplus?"Surplus":"Deficit"} Position</div>
                   <div style={{fontSize:13,color:"#64748b"}}>Income minus all expenditure for {activeTerm}</div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -769,7 +773,7 @@ export default function Finance({ user }) {
               {label:"Net Salaries Paid",   val:termSalPaid,    color:"#7B2D8B"},
               {label:"NAPSA Contributions", val:termSalaries.reduce((a,p)=>a+Number(p.napsa||0),0), color:"#f59e0b"},
               {label:"Salary Advances",    val:termSalaries.reduce((a,p)=>a+Number(p.advance||0),0),  color:"#f43f5e"},
-              ...catBreakdown.map(c=>({label:c.icon+" "+c.label, val:c.total, color:c.color})),
+              ...catBreakdown.map(c=>({label:c.label, val:c.total, color:c.color})),
             ].map(r=>(
               <div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #f1f5f9"}}>
                 <span style={{fontSize:13,color:"#64748b"}}>{r.label}</span>
@@ -809,7 +813,7 @@ export default function Finance({ user }) {
               {catBreakdown.length===0 && <div style={{color:"#94a3b8",fontSize:13}}>No expenses recorded.</div>}
               {catBreakdown.map(c=>(
                 <div key={c.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f1f5f9"}}>
-                  <span style={{fontSize:13,color:"#64748b"}}>{c.icon} {c.label}</span>
+                  <span style={{fontSize:13,color:"#64748b",display:"flex",alignItems:"center",gap:5}}><span style={{color:c.color}}><c.Icon size={13}/></span>{c.label}</span>
                   <span style={{fontSize:13,fontWeight:600,color:"#f43f5e"}}>{fmt(c.total)}</span>
                 </div>
               ))}
@@ -993,7 +997,7 @@ export default function Finance({ user }) {
                   {EXP_CATEGORIES.map(c=>(
                     <div key={c.id} onClick={()=>setNewExpense(p=>({...p,category:c.id}))}
                       style={{border:`2px solid ${newExpense.category===c.id?c.color:"#e2e8f0"}`,borderRadius:10,padding:"10px 12px",cursor:"pointer",background:newExpense.category===c.id?c.color+"10":"#FEFCFF",transition:"all .15s"}}>
-                      <div style={{fontSize:16,marginBottom:2}}>{c.icon}</div>
+                      <div style={{marginBottom:4,color:newExpense.category===c.id?c.color:"#94a3b8"}}><c.Icon size={16}/></div>
                       <div style={{fontSize:12,fontWeight:700,color:newExpense.category===c.id?c.color:"#475569"}}>{c.label}</div>
                       <div style={{fontSize:10,color:"#94a3b8"}}>{c.desc}</div>
                     </div>
@@ -1035,7 +1039,7 @@ export default function Finance({ user }) {
           <div className="fn-overlay" onClick={()=>setShowPaySalary(null)}>
             <div className="fn-modal" onClick={e=>e.stopPropagation()} style={{maxWidth:380,textAlign:"center"}}>
               <div className="fn-modal-handle"/>
-              <div style={{fontSize:40,marginBottom:14}}>💼</div>
+              <div style={{color:"#7B2D8B",display:"flex",justifyContent:"center",marginBottom:14}}><IconFinance size={44}/></div>
               <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,marginBottom:8}}>Confirm Payment</div>
               <div style={{background:"#FEFCFF",border:"1px solid #e2e8f0",borderRadius:14,padding:18,marginBottom:20,textAlign:"left"}}>
                 <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>{s.name}</div>
@@ -1049,7 +1053,7 @@ export default function Finance({ user }) {
               </div>
               <div style={{display:"flex",gap:10}}>
                 <button className="fn-btn" onClick={()=>setShowPaySalary(null)} style={{background:"#F0E8F5",color:"#64748b",flex:1}}>Cancel</button>
-                <button className="fn-btn" onClick={()=>handleRecordSalaryPayment(showPaySalary)} style={{background:"#10b981",color:"#fff",flex:2}}>✓ Confirm & Save</button>
+                <button className="fn-btn" onClick={()=>handleRecordSalaryPayment(showPaySalary)} style={{background:"#10b981",color:"#fff",flex:2,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><IconCheck size={14}/>Confirm & Save</button>
               </div>
             </div>
           </div>
@@ -1069,7 +1073,7 @@ export default function Finance({ user }) {
                 const spent = catBreakdown.find(c=>c.id===cat.id)?.total||0;
                 return (
                   <div key={cat.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 0",borderBottom:"1px solid #f1f5f9"}}>
-                    <span style={{fontSize:20,width:28}}>{cat.icon}</span>
+                    <span style={{width:28,color:cat.color,display:"flex",alignItems:"center"}}><cat.Icon size={18}/></span>
                     <div style={{flex:1}}>
                       <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:2}}>{cat.label}</div>
                       <div style={{fontSize:11,color:"#94a3b8"}}>Currently spent: {fmt(spent)}</div>
@@ -1100,7 +1104,7 @@ export default function Finance({ user }) {
         <div className="fn-overlay" onClick={()=>setBlockedWarning(null)}>
           <div className="fn-modal" onClick={e=>e.stopPropagation()} style={{maxWidth:380,textAlign:"center"}}>
               <div className="fn-modal-handle"/>
-            <div style={{fontSize:52,marginBottom:14}}>🚫</div>
+            <div style={{color:"#f43f5e",display:"flex",justifyContent:"center",marginBottom:14}}><IconWarning size={52}/></div>
             <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,color:"#f43f5e",marginBottom:8}}>Budget Limit Exceeded</div>
             <p style={{fontSize:13,color:"#64748b",marginBottom:20,lineHeight:1.7}}>
               This expense of <strong>{fmt(blockedWarning.amount)}</strong> would exceed the budget for <strong>{blockedWarning.cat?.label}</strong>.<br/>
@@ -1122,7 +1126,7 @@ export default function Finance({ user }) {
         <div style={{position:"fixed",bottom:22,right:22,zIndex:300,animation:"slideUp .3s ease"}}>
           <style>{`@keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
           <div style={{background:"#1e293b",color:"#e2e8f0",borderRadius:12,padding:"13px 20px",fontSize:13,fontWeight:600,boxShadow:"0 8px 32px rgba(0,0,0,.2)",display:"flex",alignItems:"center",gap:10}}>
-            <span style={{color:"#10b981"}}>✓</span>{toast}
+            <span style={{color:"#10b981",display:"inline-flex",alignItems:"center"}}><IconCheck size={14}/></span>{toast}
           </div>
         </div>
       )}

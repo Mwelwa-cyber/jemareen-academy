@@ -185,3 +185,85 @@ export const IconArrowRight = ({ size = 18 }) => (
     <polyline points="12 5 19 12 12 19" />
   </S>
 );
+
+export const IconTrendUp = ({ size = 18 }) => (
+  <S size={size}>
+    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+    <polyline points="17 6 23 6 23 12" />
+  </S>
+);
+
+export const IconList = ({ size = 18 }) => (
+  <S size={size}>
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
+  </S>
+);
+
+export const IconScale = ({ size = 18 }) => (
+  <S size={size}>
+    <line x1="12" y1="3" x2="12" y2="21" />
+    <path d="M3 6l9-3 9 3" />
+    <path d="M6 18H3l-1 3h20l-1-3h-3" />
+    <path d="M6 9l-3 9" />
+    <path d="M18 9l3 9" />
+  </S>
+);
+
+export const IconTarget = ({ size = 18 }) => (
+  <S size={size}>
+    <circle cx="12" cy="12" r="10" />
+    <circle cx="12" cy="12" r="6" />
+    <circle cx="12" cy="12" r="2" />
+  </S>
+);
+
+export const IconLightbulb = ({ size = 18 }) => (
+  <S size={size}>
+    <line x1="9" y1="18" x2="15" y2="18" />
+    <line x1="10" y1="22" x2="14" y2="22" />
+    <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
+  </S>
+);
+
+export const IconBox = ({ size = 18 }) => (
+  <S size={size}>
+    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+    <line x1="12" y1="22.08" x2="12" y2="12" />
+  </S>
+);
+
+export const IconUsers = ({ size = 18 }) => (
+  <S size={size}>
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </S>
+);
+
+export const IconTruck = ({ size = 18 }) => (
+  <S size={size}>
+    <rect x="1" y="3" width="15" height="13" />
+    <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+    <circle cx="5.5" cy="18.5" r="2.5" />
+    <circle cx="18.5" cy="18.5" r="2.5" />
+  </S>
+);
+
+export const IconStar = ({ size = 18 }) => (
+  <S size={size}>
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+  </S>
+);
+
+export const IconTool = ({ size = 18 }) => (
+  <S size={size}>
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+  </S>
+);
