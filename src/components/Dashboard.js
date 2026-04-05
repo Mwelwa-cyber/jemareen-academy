@@ -79,6 +79,8 @@ export default function Dashboard({ user, userRole = "admin1" }) {
   const [remindersSent, setRemindersSent]   = useState([]);
   const [aiInsight, setAiInsight]           = useState(null);
   const [aiLoading, setAiLoading]           = useState(false);
+  const [geminiKey, setGeminiKey]           = useState(() => localStorage.getItem("jemareen_gemini_key") || "");
+  const [geminiKeyInput, setGeminiKeyInput] = useState("");
   const [delConfirm, setDelConfirm]         = useState(null);
 
   const [isOnline, setIsOnline]           = useState(navigator.onLine);
@@ -417,6 +419,7 @@ export default function Dashboard({ user, userRole = "admin1" }) {
   };
 
   const generateAIInsight = async () => {
+    if (!geminiKey) { showToast("Add your Gemini API key first.", "err"); return; }
     setAiLoading(true); setAiInsight(null);
     try {
       const summary = {
@@ -428,17 +431,22 @@ export default function Dashboard({ user, userRole = "admin1" }) {
         outstanding: stats.outstanding,
         gradeBreakdown: gradeBreakdown.map(g=>({grade:g.grade,rate:g.rate,total:g.total})),
       };
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          model:"claude-sonnet-4-20250514", max_tokens:800,
-          system:"You are a school finance advisor for a Zambian primary school called Jemareen Academy. Analyze payment data and give 3-4 short, actionable paragraphs. Be warm, practical, and direct. Plain text only.",
-          messages:[{role:"user",content:`Analyze this data: ${JSON.stringify(summary)}`}]
-        })
-      });
+      const prompt = `You are a school finance advisor for a Zambian primary school called Jemareen Academy. Analyze this payment data and give 3-4 short, actionable paragraphs. Be warm, practical, and direct. Plain text only.\n\nData: ${JSON.stringify(summary)}`;
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: 800, temperature: 0.7 },
+          }),
+        }
+      );
       const data = await res.json();
-      setAiInsight(data.content?.[0]?.text || "Could not generate insight.");
-    } catch { setAiInsight("AI insight unavailable. Check your internet connection."); }
+      if (data.error) { setAiInsight(`Error: ${data.error.message}`); setAiLoading(false); return; }
+      setAiInsight(data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from AI.");
+    } catch { setAiInsight("AI unavailable. Check your internet connection."); }
     setAiLoading(false);
   };
 
@@ -903,12 +911,35 @@ export default function Dashboard({ user, userRole = "admin1" }) {
           </div>
           <div className="card" style={{padding:18}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div><div style={{fontWeight:700,fontSize:15}}>AI Insights</div><div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>Powered by Claude AI</div></div>
-              <button className="btn" onClick={generateAIInsight} style={{background:"#7B2D8B",color:"#fff",fontSize:13,padding:"10px 16px"}}>{aiLoading?"…":"Generate"}</button>
+              <div>
+                <div style={{fontWeight:700,fontSize:15}}>AI Insights</div>
+                <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>Powered by Google Gemini (free)</div>
+              </div>
+              {geminiKey && <button className="btn" onClick={generateAIInsight} disabled={aiLoading} style={{background:"#7B2D8B",color:"#fff",fontSize:13,padding:"10px 16px",opacity:aiLoading?.6:1}}>{aiLoading?"Analysing…":"Generate"}</button>}
             </div>
-            {aiLoading&&<div style={{color:"#94a3b8",fontSize:13,padding:"10px 0",display:"flex",alignItems:"center",gap:8}}><div style={{width:14,height:14,border:"2px solid rgba(123,45,139,.2)",borderTopColor:"#7B2D8B",borderRadius:"50%",animation:"spin .7s linear infinite",flexShrink:0}}/>Analyzing…</div>}
-            {aiInsight&&!aiLoading&&<div style={{background:"#FBF7FD",border:"1px solid #e0e7ff",borderRadius:12,padding:16,fontSize:14,lineHeight:1.8,color:"#374151"}}>{aiInsight}</div>}
-            {!aiInsight&&!aiLoading&&<div style={{textAlign:"center",padding:"14px 0",color:"#94a3b8",fontSize:13}}>Tap Generate for AI recommendations.</div>}
+            {!geminiKey && (
+              <div style={{background:"#FBF9FF",border:"1px solid #e9d5f7",borderRadius:14,padding:16}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:6}}>Set up free AI (takes 1 minute)</div>
+                <ol style={{fontSize:12,color:"#64748b",paddingLeft:18,lineHeight:2,marginBottom:14}}>
+                  <li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" style={{color:"#7B2D8B",fontWeight:700}}>aistudio.google.com/app/apikey</a></li>
+                  <li>Sign in with any Google account</li>
+                  <li>Click <strong>"Create API key"</strong> — it's free</li>
+                  <li>Paste it below and save</li>
+                </ol>
+                <div style={{display:"flex",gap:8}}>
+                  <input className="inp" type="password" placeholder="Paste Gemini API key here…" value={geminiKeyInput} onChange={e=>setGeminiKeyInput(e.target.value)} style={{flex:1,fontSize:13,padding:"11px 14px"}}/>
+                  <button className="btn" onClick={()=>{ if(geminiKeyInput.trim()){localStorage.setItem("jemareen_gemini_key",geminiKeyInput.trim());setGeminiKey(geminiKeyInput.trim());setGeminiKeyInput("");showToast("Gemini AI connected!");} }} style={{background:"#7B2D8B",color:"#fff",padding:"11px 18px",whiteSpace:"nowrap"}}>Save Key</button>
+                </div>
+              </div>
+            )}
+            {geminiKey && !aiInsight && !aiLoading && (
+              <div style={{textAlign:"center",padding:"14px 0",color:"#94a3b8",fontSize:13}}>
+                Tap Generate for AI recommendations.
+                <div style={{marginTop:8}}><button onClick={()=>{localStorage.removeItem("jemareen_gemini_key");setGeminiKey("");}} style={{background:"none",border:"none",color:"#cbd5e1",fontSize:11,cursor:"pointer",textDecoration:"underline"}}>Remove key</button></div>
+              </div>
+            )}
+            {aiLoading&&<div style={{color:"#94a3b8",fontSize:13,padding:"10px 0",display:"flex",alignItems:"center",gap:8}}><div style={{width:14,height:14,border:"2px solid rgba(123,45,139,.2)",borderTopColor:"#7B2D8B",borderRadius:"50%",animation:"_ldspin .7s linear infinite",flexShrink:0}}/>Analysing your data…</div>}
+            {aiInsight&&!aiLoading&&<div style={{background:"#FBF7FD",border:"1px solid #e0e7ff",borderRadius:12,padding:16,fontSize:14,lineHeight:1.8,color:"#374151",whiteSpace:"pre-wrap"}}>{aiInsight}</div>}
           </div>
         </>}
 
