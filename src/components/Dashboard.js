@@ -384,7 +384,7 @@ export default function Dashboard({ user }) {
       };
       const prompt = `You are a school finance advisor for a Zambian primary school called Jemareen Academy. Analyze this payment data and give 3-4 short, actionable paragraphs. Be warm, practical, and direct. Plain text only.\n\nData: ${JSON.stringify(summary)}`;
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: {"Content-Type":"application/json"},
