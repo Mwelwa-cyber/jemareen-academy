@@ -10,6 +10,12 @@ import {
   doc, onSnapshot, query, orderBy, serverTimestamp
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import {
+  IconDashboard, IconPayments, IconLearners, IconBell, IconChart,
+  IconFees, IconFinance, IconChat, IconCalendar, IconWallet,
+  IconHome, IconMenu, IconX, IconBolt, IconWarning, IconCheck,
+  IconSchool,
+} from "./Icons";
 
 const GRADES = ["Baby Class","Reception","Grade 1","Grade 2","Grade 3","Grade 4","Grade 5","Grade 6","Grade 7"];
 const TERMS  = ["Term 1 2026","Term 2 2026","Term 3 2026"];
@@ -39,16 +45,16 @@ const getStatus = (paid, fee, arrears) => {
 };
 
 const NAV = [
-  {id:"dashboard", icon:"▣", label:"Dashboard"},
-  {id:"payments",  icon:"◈", label:"Payments"},
-  {id:"learners",  icon:"◉", label:"Learners"},
-  {id:"reminders", icon:"◎", label:"Reminders"},
-  {id:"analytics", icon:"◲", label:"Analytics"},
-  {id:"fees",      icon:"◆", label:"Fee Setup"},
-  {id:"finance",   icon:"💼", label:"Finance"},
-  {id:"whatsapp",  icon:"💬", label:"WhatsApp"},
-  {id:"annual",    icon:"📅", label:"Annual"},
-  {id:"pettycash", icon:"💰", label:"Petty Cash"},
+  {id:"dashboard", icon:<IconDashboard size={18}/>, label:"Dashboard"},
+  {id:"payments",  icon:<IconPayments  size={18}/>, label:"Payments"},
+  {id:"learners",  icon:<IconLearners  size={18}/>, label:"Learners"},
+  {id:"reminders", icon:<IconBell      size={18}/>, label:"Reminders"},
+  {id:"analytics", icon:<IconChart     size={18}/>, label:"Analytics"},
+  {id:"fees",      icon:<IconFees      size={18}/>, label:"Fee Setup"},
+  {id:"finance",   icon:<IconFinance   size={18}/>, label:"Finance"},
+  {id:"whatsapp",  icon:<IconChat      size={18}/>, label:"WhatsApp"},
+  {id:"annual",    icon:<IconCalendar  size={18}/>, label:"Annual"},
+  {id:"pettycash", icon:<IconWallet    size={18}/>, label:"Petty Cash"},
 ];
 
 export default function Dashboard({ user }) {
@@ -262,20 +268,21 @@ export default function Dashboard({ user }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (loading) return (
-    <div style={{minHeight:"100vh",background:"#f4f6fb",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"#F7F3FA",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Outfit',sans-serif"}}>
+      <style>{`@keyframes _ldspin{to{transform:rotate(360deg)}}`}</style>
       <div style={{textAlign:"center"}}>
-        <div style={{fontSize:40,marginBottom:16}}>🏫</div>
-        <div style={{fontSize:16,color:"#94a3b8",fontWeight:600}}>Loading Jemareen Academy…</div>
+        <div style={{width:48,height:48,border:"4px solid rgba(123,45,139,.15)",borderTopColor:"#7B2D8B",borderRadius:"50%",animation:"_ldspin .8s linear infinite",margin:"0 auto 16px"}}/>
+        <div style={{fontSize:15,color:"#94a3b8",fontWeight:600}}>Loading Jemareen Academy…</div>
       </div>
     </div>
   );
 
   const BOTTOM_NAV = [
-    {id:"dashboard",icon:"▣",label:"Home"},
-    {id:"payments", icon:"◈",label:"Pay"},
-    {id:"learners", icon:"◉",label:"Learners"},
-    {id:"whatsapp", icon:"💬",label:"WhatsApp"},
-    {id:"more",     icon:"☰", label:"More"},
+    {id:"dashboard",icon:<IconHome      size={22}/>,label:"Home"},
+    {id:"payments", icon:<IconPayments  size={22}/>,label:"Pay"},
+    {id:"learners", icon:<IconLearners  size={22}/>,label:"Learners"},
+    {id:"whatsapp", icon:<IconChat      size={22}/>,label:"WhatsApp"},
+    {id:"more",     icon:<IconMenu      size={22}/>,label:"More"},
   ];
 
   return (
@@ -374,7 +381,7 @@ export default function Dashboard({ user }) {
                 <div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:3,fontStyle:"italic"}}>"Bringing out the best in children"</div>
               </div>
             </div>
-            <button onClick={()=>setSidebarOpen(false)} style={{border:"none",background:"rgba(255,255,255,.08)",borderRadius:8,fontSize:22,cursor:"pointer",color:"#fff",lineHeight:1,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+            <button onClick={()=>setSidebarOpen(false)} style={{border:"none",background:"rgba(255,255,255,.08)",borderRadius:8,cursor:"pointer",color:"#fff",width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center"}}><IconX size={18}/></button>
           </div>
           <div style={{padding:"12px 10px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
             <div style={{fontSize:10,color:"rgba(255,255,255,.35)",textTransform:"uppercase",letterSpacing:".08em",padding:"0 10px",marginBottom:6}}>Active Term</div>
@@ -398,7 +405,7 @@ export default function Dashboard({ user }) {
 
       {/* MOBILE HEADER */}
       <div className="mobile-hdr">
-        <button onClick={()=>setSidebarOpen(true)} style={{border:"none",background:"#EDE4F5",borderRadius:10,fontSize:18,cursor:"pointer",color:"#7B2D8B",padding:"8px 10px",lineHeight:1}}>☰</button>
+        <button onClick={()=>setSidebarOpen(true)} style={{border:"none",background:"#EDE4F5",borderRadius:10,cursor:"pointer",color:"#7B2D8B",padding:"9px",display:"flex",alignItems:"center"}}><IconMenu size={20}/></button>
         <div style={{display:"flex",alignItems:"center",gap:8,flex:1}}>
           <img src={LOGO} alt="Logo" style={{width:30,height:30,flexShrink:0}}/>
           <div>
@@ -408,7 +415,7 @@ export default function Dashboard({ user }) {
         </div>
         {activeTab==="learners"  && <button className="btn" onClick={()=>setShowAddLearner(true)}  style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Add</button>}
         {activeTab==="payments"  && <button className="btn" onClick={()=>setShowAddPayment(true)}  style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>+ Pay</button>}
-        {activeTab==="reminders" && <button className="btn" onClick={handleBulkRemind}             style={{background:"#f59e0b",color:"#fff",padding:"9px 16px",fontSize:13}}>⚡ All</button>}
+        {activeTab==="reminders" && <button className="btn" onClick={handleBulkRemind}             style={{background:"#f59e0b",color:"#fff",padding:"9px 16px",fontSize:13,display:"flex",alignItems:"center",gap:6}}><IconBolt size={14}/>Send All</button>}
         {activeTab==="fees"      && <button className="btn" onClick={()=>{setEditFeeVals({});setShowEditFees(true);}} style={{background:"#7B2D8B",color:"#fff",padding:"9px 16px",fontSize:13}}>Edit</button>}
       </div>
 
@@ -452,8 +459,8 @@ export default function Dashboard({ user }) {
               {[
                 {label:"+ Add Learner",    action:()=>setShowAddLearner(true),  color:"#7B2D8B"},
                 {label:"+ Record Payment", action:()=>setShowAddPayment(true),  color:"#10b981"},
-                {label:"💬 WhatsApp",      action:()=>setActiveTab("whatsapp"), color:"#25D366"},
-                {label:"📅 Annual Report", action:()=>setActiveTab("annual"),   color:"#f59e0b"},
+                {label:"WhatsApp",      action:()=>setActiveTab("whatsapp"), color:"#25D366"},
+                {label:"Annual Report", action:()=>setActiveTab("annual"),   color:"#f59e0b"},
               ].map(a=>(
                 <button key={a.label} className="btn" onClick={a.action} style={{background:a.color+"14",color:a.color,border:`1px solid ${a.color}22`,textAlign:"left",fontSize:13,padding:"13px 14px"}}>{a.label}</button>
               ))}
@@ -477,7 +484,7 @@ export default function Dashboard({ user }) {
         {/* PAYMENTS */}
         {activeTab==="payments" && <>
           <button className="btn" onClick={()=>setShowAddPayment(true)} style={{background:"#7B2D8B",color:"#fff",width:"100%",marginBottom:12,fontSize:15,padding:"14px"}}>
-            💳 Record New Payment
+            Record New Payment
           </button>
           <input className="inp" style={{marginBottom:10}} placeholder="Search learner or parent…" value={searchQ} onChange={e=>setSearchQ(e.target.value)}/>
           <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:6,marginBottom:12}}>
@@ -541,13 +548,13 @@ export default function Dashboard({ user }) {
                 </div>
               );
             })}
-            {enriched.length===0&&<div className="card" style={{padding:48,textAlign:"center",color:"#94a3b8"}}><div style={{fontSize:40,marginBottom:12}}>👩‍🎓</div><div style={{fontWeight:600,marginBottom:10}}>No learners yet</div><button className="btn" onClick={()=>setShowAddLearner(true)} style={{background:"#7B2D8B",color:"#fff"}}>Add First Learner</button></div>}
+            {enriched.length===0&&<div className="card" style={{padding:48,textAlign:"center",color:"#94a3b8"}}><div style={{color:"#D4A820",display:"flex",justifyContent:"center",marginBottom:12}}><IconSchool size={44}/></div><div style={{fontWeight:600,marginBottom:10}}>No learners yet</div><button className="btn" onClick={()=>setShowAddLearner(true)} style={{background:"#7B2D8B",color:"#fff"}}>Add First Learner</button></div>}
           </div>
         </>}
 
         {/* REMINDERS */}
         {activeTab==="reminders" && <>
-          <button className="btn" onClick={handleBulkRemind} style={{background:"#f59e0b",color:"#fff",width:"100%",marginBottom:12,fontSize:15,padding:"15px"}}>⚡ Send All Reminders</button>
+          <button className="btn" onClick={handleBulkRemind} style={{background:"#f59e0b",color:"#fff",width:"100%",marginBottom:12,fontSize:15,padding:"15px",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><IconBolt size={16}/>Send All Reminders</button>
           <select className="inp" style={{marginBottom:14}} value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)}>
             <option>All Grades</option>{GRADES.map(g=><option key={g}>{g}</option>)}
           </select>
@@ -569,7 +576,7 @@ export default function Dashboard({ user }) {
                 </div>
               );
             })}
-            {filtered.filter(l=>l.status!=="paid").length===0&&<div className="card" style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:14}}>🎉 All learners paid up!</div>}
+            {filtered.filter(l=>l.status!=="paid").length===0&&<div className="card" style={{padding:40,textAlign:"center",fontSize:14}}><div style={{color:"#10b981",display:"flex",justifyContent:"center",marginBottom:10}}><IconCheck size={36}/></div><div style={{fontWeight:600,color:"#1e293b",marginBottom:4}}>All caught up!</div><div style={{color:"#94a3b8"}}>All learners are paid up for this term.</div></div>}
           </div>
         </>}
 
@@ -594,10 +601,10 @@ export default function Dashboard({ user }) {
           </div>
           <div className="card" style={{padding:18}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div><div style={{fontWeight:700,fontSize:15}}>✦ AI Insights</div><div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>Powered by Claude AI</div></div>
+              <div><div style={{fontWeight:700,fontSize:15}}>AI Insights</div><div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>Powered by Claude AI</div></div>
               <button className="btn" onClick={generateAIInsight} style={{background:"#7B2D8B",color:"#fff",fontSize:13,padding:"10px 16px"}}>{aiLoading?"…":"Generate"}</button>
             </div>
-            {aiLoading&&<div style={{color:"#94a3b8",fontSize:13,padding:"10px 0"}}>🔍 Analyzing…</div>}
+            {aiLoading&&<div style={{color:"#94a3b8",fontSize:13,padding:"10px 0",display:"flex",alignItems:"center",gap:8}}><div style={{width:14,height:14,border:"2px solid rgba(123,45,139,.2)",borderTopColor:"#7B2D8B",borderRadius:"50%",animation:"spin .7s linear infinite",flexShrink:0}}/>Analyzing…</div>}
             {aiInsight&&!aiLoading&&<div style={{background:"#FBF7FD",border:"1px solid #e0e7ff",borderRadius:12,padding:16,fontSize:14,lineHeight:1.8,color:"#374151"}}>{aiInsight}</div>}
             {!aiInsight&&!aiLoading&&<div style={{textAlign:"center",padding:"14px 0",color:"#94a3b8",fontSize:13}}>Tap Generate for AI recommendations.</div>}
           </div>
@@ -634,7 +641,7 @@ export default function Dashboard({ user }) {
           const isActive=n.id==="more"?!["dashboard","payments","learners","whatsapp"].includes(activeTab):activeTab===n.id;
           return (
             <button key={n.id} onClick={()=>n.id==="more"?setSidebarOpen(true):setActiveTab(n.id)}>
-              <span style={{fontSize:22}}>{n.icon}</span>
+              <span style={{color:isActive?"#7B2D8B":"#94a3b8"}}>{n.icon}</span>
               <span style={{fontSize:10,fontWeight:isActive?800:500,color:isActive?"#7B2D8B":"#94a3b8"}}>{n.label}</span>
             </button>
           );
@@ -800,7 +807,7 @@ export default function Dashboard({ user }) {
       {delConfirm && (
         <div className="overlay" onClick={()=>setDelConfirm(null)}>
           <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:360,textAlign:"center"}}>
-            <div style={{fontSize:40,marginBottom:14}}>⚠️</div>
+            <div style={{color:"#ef4444",display:"flex",justifyContent:"center",marginBottom:14}}><IconWarning size={48}/></div>
             <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:800,marginBottom:8}}>Remove Learner?</div>
             <p style={{fontSize:13,color:"#64748b",marginBottom:24}}>This will permanently remove <strong>{delConfirm.name}</strong> and all their records from Jemareen Academy. This cannot be undone.</p>
             <div style={{display:"flex",gap:10}}>
@@ -815,7 +822,7 @@ export default function Dashboard({ user }) {
       {toast && (
         <div className="toast-w">
           <div style={{background:"#1e293b",color:"#e2e8f0",borderRadius:12,padding:"13px 20px",fontSize:13,fontWeight:600,boxShadow:"0 8px 32px rgba(0,0,0,.2)",display:"flex",alignItems:"center",gap:10}}>
-            <span style={{color:"#10b981"}}>✓</span>{toast.msg}
+            <span style={{color:"#10b981",display:"inline-flex",alignItems:"center"}}><IconCheck size={14}/></span>{toast.msg}
           </div>
         </div>
       )}

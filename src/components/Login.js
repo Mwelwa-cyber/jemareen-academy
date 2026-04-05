@@ -2,6 +2,7 @@ import { useState } from "react";
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../firebase";
 import { LOGO } from "../App";
+import { IconMail, IconLock, IconEye, IconEyeOff, IconWarning, IconInfo, IconArrowRight } from "./Icons";
 
 export default function Login() {
   const [email,     setEmail]     = useState("");
@@ -75,7 +76,7 @@ export default function Login() {
         <div style={{maxWidth:400,margin:"0 auto"}}>
           {resetSent ? (
             <div style={{textAlign:"center",padding:"24px 0"}}>
-              <div style={{fontSize:52,marginBottom:16}}>📧</div>
+              <div style={{width:64,height:64,background:"rgba(123,45,139,.1)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:"#7B2D8B"}}><IconMail size={30}/></div>
               <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:"#1e293b",marginBottom:8}}>Reset link sent!</div>
               <div style={{fontSize:14,color:"#64748b",lineHeight:1.7,marginBottom:24}}>Check your inbox at <strong>{email}</strong> and follow the link to reset your password.</div>
               <button onClick={()=>setResetSent(false)} style={{background:"#7B2D8B",border:"none",borderRadius:14,padding:"14px 32px",color:"#fff",fontWeight:800,cursor:"pointer",fontFamily:"'Outfit',sans-serif",fontSize:15}}>Back to Login</button>
@@ -91,7 +92,7 @@ export default function Login() {
                 <div style={{marginBottom:16}}>
                   <label style={{fontSize:12,fontWeight:700,color:"#5A1F68",display:"block",marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Email Address</label>
                   <div style={{position:"relative"}}>
-                    <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",fontSize:18,opacity:.5,pointerEvents:"none",lineHeight:1}}>✉</span>
+                    <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",opacity:.45,pointerEvents:"none",display:"flex",alignItems:"center",color:"#5A1F68"}}><IconMail size={18}/></span>
                     <input className="l-inp" type="email" inputMode="email" autoCapitalize="none" autoComplete="email"
                       placeholder="admin@jemareen.zm" value={email}
                       onChange={e=>{setEmail(e.target.value);setError("");}} required />
@@ -107,13 +108,13 @@ export default function Login() {
                     </button>
                   </div>
                   <div style={{position:"relative"}}>
-                    <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",fontSize:17,opacity:.5,pointerEvents:"none",lineHeight:1}}>🔒</span>
+                    <span style={{position:"absolute",left:16,top:"50%",transform:"translateY(-50%)",opacity:.45,pointerEvents:"none",display:"flex",alignItems:"center",color:"#5A1F68"}}><IconLock size={18}/></span>
                     <input className="l-inp" type={showPass?"text":"password"} autoComplete="current-password"
                       placeholder="••••••••••" value={password}
                       onChange={e=>{setPassword(e.target.value);setError("");}} required style={{paddingRight:52}}/>
                     <button type="button" onClick={()=>setShowPass(p=>!p)}
-                      style={{position:"absolute",right:16,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:18,opacity:.4,lineHeight:1,padding:0}}>
-                      {showPass?"🙈":"👁"}
+                      style={{position:"absolute",right:16,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",opacity:.45,padding:0,display:"flex",alignItems:"center",color:"#5A1F68"}}>
+                      {showPass?<IconEyeOff size={20}/>:<IconEye size={20}/>}
                     </button>
                   </div>
                 </div>
@@ -121,7 +122,7 @@ export default function Login() {
                 <div style={{minHeight:36,marginBottom:12}}>
                   {error && (
                     <div style={{fontSize:13,color:"#dc2626",fontWeight:600,background:"#fff5f5",border:"1px solid #fecaca",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}>
-                      ⚠️ {error}
+                      <span style={{display:"flex",alignItems:"center",flexShrink:0}}><IconWarning size={15}/></span>{error}
                     </div>
                   )}
                 </div>
@@ -133,13 +134,14 @@ export default function Login() {
                       <span style={{width:18,height:18,border:"2.5px solid rgba(255,255,255,.3)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>
                       Signing in…
                     </span>
-                  ) : "Sign In →"}
+                  ) : <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>Sign In<IconArrowRight size={18}/></span>}
                 </button>
               </form>
 
-              <div style={{background:"#F7F3FA",border:"1px solid #E2D4EC",borderRadius:14,padding:"14px 16px",textAlign:"center"}}>
+              <div style={{background:"#F7F3FA",border:"1px solid #E2D4EC",borderRadius:14,padding:"14px 16px",display:"flex",gap:10,alignItems:"flex-start"}}>
+                <span style={{color:"#7B2D8B",flexShrink:0,marginTop:1,display:"flex"}}><IconInfo size={16}/></span>
                 <div style={{fontSize:13,color:"#64748b",lineHeight:1.6}}>
-                  🔑 Your login is set up by your school administrator. Contact them if you need credentials.
+                  Your login is set up by your school administrator. Contact them if you need credentials.
                 </div>
               </div>
             </>
