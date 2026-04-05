@@ -7,14 +7,14 @@ import PettyCash from "./PettyCash";
 import { LOGO } from "../App";
 import {
   collection, addDoc, updateDoc, deleteDoc, setDoc,
-  doc, onSnapshot, query, orderBy, serverTimestamp
+  doc, onSnapshot, query, orderBy, serverTimestamp, limit
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import {
   IconDashboard, IconPayments, IconLearners, IconBell, IconChart,
   IconFees, IconFinance, IconChat, IconCalendar, IconWallet,
   IconHome, IconMenu, IconX, IconBolt, IconWarning, IconCheck,
-  IconSchool,
+  IconSchool, IconList,
 } from "./Icons";
 
 const GRADES = ["Baby Class","Reception","Grade 1","Grade 2","Grade 3","Grade 4","Grade 5","Grade 6","Grade 7"];
@@ -55,6 +55,7 @@ const NAV = [
   {id:"whatsapp",  icon:<IconChat      size={18}/>, label:"WhatsApp"},
   {id:"annual",    icon:<IconCalendar  size={18}/>, label:"Annual"},
   {id:"pettycash", icon:<IconWallet    size={18}/>, label:"Petty Cash"},
+  {id:"audit",     icon:<IconList      size={18}/>, label:"Audit Log"},
 ];
 
 export default function Dashboard({ user }) {
@@ -78,6 +79,15 @@ export default function Dashboard({ user }) {
   const [aiInsight, setAiInsight]           = useState(null);
   const [aiLoading, setAiLoading]           = useState(false);
   const [delConfirm, setDelConfirm]         = useState(null);
+
+  const [isOnline, setIsOnline]           = useState(navigator.onLine);
+  const [pendingPayments, setPendingPayments] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("jemareen_pending") || "[]"); } catch { return []; }
+  });
+  const [syncingOffline, setSyncingOffline] = useState(false);
+  const [auditLogs, setAuditLogs]         = useState([]);
+  const [showHistory, setShowHistory]     = useState(null);   // learner object
+  const [delPayConfirm, setDelPayConfirm] = useState(null);   // payment object to delete
 
   // New state variables
   const [expandedGrades, setExpandedGrades] = useState(() => new Set([...GRADES, ...GRADES.map(g=>g+"_l")]));
@@ -110,7 +120,21 @@ export default function Dashboard({ user }) {
     const unsubFees = onSnapshot(doc(db,"settings","fees"), (snap) => {
       if (snap.exists()) setFees({...DEFAULT_FEES, ...snap.data()});
     });
-    return () => { unsubLearners(); unsubPayments(); unsubFees(); };
+    const unsubAudit = onSnapshot(
+      query(collection(db,"auditLogs"), orderBy("timestamp","desc"), limit(150)),
+      snap => setAuditLogs(snap.docs.map(d => ({id:d.id, ...d.data()})))
+    );
+    return () => { unsubLearners(); unsubPayments(); unsubFees(); unsubAudit(); };
+  }, []);
+
+  // ── ONLINE / OFFLINE ────────────────────────────────────────────────────
+  useEffect(() => {
+    const goOnline  = () => { setIsOnline(true);  syncOfflinePayments(); };
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online",  goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── ENRICHED DATA ──────────────────────────────────────────────────────
@@ -211,12 +235,15 @@ export default function Dashboard({ user }) {
       setShowAddLearner(false);
       setNewLearner({name:"",grade:"Baby Class",parent:"",phone:"",email:""});
       showToast(`${newLearner.name} added successfully!`);
+      await audit("LEARNER_ADDED", { name: newLearner.name, grade: newLearner.grade });
     } catch { showToast("Failed to add learner.", "err"); }
   };
 
   const handleDeleteLearner = async (id) => {
+    const target = learners.find(l=>l.id===id);
     try {
       await deleteDoc(doc(db,"learners",id));
+      await audit("LEARNER_DELETED", { name: target?.name||id, grade: target?.grade||"" });
       setDelConfirm(null);
       showToast("Learner removed.");
     } catch { showToast("Could not delete.", "err"); }
@@ -227,19 +254,31 @@ export default function Dashboard({ user }) {
       showToast("Select a learner and enter amount.", "err"); return;
     }
     const learner = learners.find(l => l.id === newPayment.learnerId);
+    const paymentData = {
+      learnerId:   newPayment.learnerId,
+      learnerName: learner?.name || "",
+      grade:       learner?.grade || "",
+      term:        activeTerm,
+      amount:      parseFloat(newPayment.amount),
+      method:      newPayment.method,
+      date:        newPayment.date,
+      notes:       newPayment.notes,
+      recordedBy:  user.email,
+    };
+    if (!isOnline) {
+      const pending = JSON.parse(localStorage.getItem("jemareen_pending") || "[]");
+      const entry = { ...paymentData, _offlineId: Date.now().toString(), createdAt: new Date().toISOString() };
+      pending.push(entry);
+      localStorage.setItem("jemareen_pending", JSON.stringify(pending));
+      setPendingPayments(pending);
+      setShowAddPayment(false);
+      setNewPayment({learnerId:"",amount:"",method:"Mobile Money",date:new Date().toISOString().split("T")[0],notes:""});
+      showToast("Saved offline — will sync when connected.");
+      return;
+    }
     try {
-      await addDoc(collection(db,"payments"), {
-        learnerId:  newPayment.learnerId,
-        learnerName: learner?.name || "",
-        grade:       learner?.grade || "",
-        term:        activeTerm,
-        amount:      parseFloat(newPayment.amount),
-        method:      newPayment.method,
-        date:        newPayment.date,
-        notes:       newPayment.notes,
-        recordedBy:  user.email,
-        createdAt:   serverTimestamp(),
-      });
+      await addDoc(collection(db,"payments"), { ...paymentData, createdAt: serverTimestamp() });
+      await audit("PAYMENT_ADDED", { learnerName: paymentData.learnerName, amount: paymentData.amount, grade: paymentData.grade, method: paymentData.method });
       setShowAddPayment(false);
       setNewPayment({learnerId:"",amount:"",method:"Mobile Money",date:new Date().toISOString().split("T")[0],notes:""});
       showToast("Payment recorded!");
@@ -258,6 +297,7 @@ export default function Dashboard({ user }) {
       setShowEditFees(false);
       setEditFeeVals({});
       showToast("Fee structure saved!");
+      await audit("FEES_UPDATED", { fees: merged });
     } catch { showToast("Failed to save fees.", "err"); }
   };
 
@@ -267,6 +307,7 @@ export default function Dashboard({ user }) {
       await updateDoc(doc(db,"learners",editLearner.id), editLearnerVals);
       setEditLearner(null); setEditLearnerVals({});
       showToast("Learner updated!");
+      await audit("LEARNER_EDITED", { name: editLearner.name, changes: editLearnerVals });
     } catch { showToast("Failed to update.","err"); }
   };
 
@@ -280,6 +321,48 @@ export default function Dashboard({ user }) {
     const targets = filtered.filter(l => l.status !== "paid" && !remindersSent.includes(l.id+activeTerm));
     targets.forEach(l => setRemindersSent(prev=>[...prev, l.id+activeTerm]));
     showToast(`${targets.length} reminders sent!`);
+  };
+
+  // ── AUDIT HELPER ────────────────────────────────────────────────────────
+  const audit = async (action, details) => {
+    try {
+      await addDoc(collection(db,"auditLogs"), {
+        action, details,
+        performedBy: user?.email || "unknown",
+        term: activeTerm,
+        timestamp: serverTimestamp(),
+      });
+    } catch {}
+  };
+
+  // ── OFFLINE SYNC ────────────────────────────────────────────────────────
+  const syncOfflinePayments = async () => {
+    const pending = JSON.parse(localStorage.getItem("jemareen_pending") || "[]");
+    if (!pending.length) return;
+    setSyncingOffline(true);
+    let synced = 0;
+    for (const p of pending) {
+      try {
+        const { _offlineId, ...data } = p;
+        await addDoc(collection(db,"payments"), { ...data, createdAt: serverTimestamp(), syncedFromOffline: true });
+        await audit("PAYMENT_SYNCED_OFFLINE", { learnerName: p.learnerName, amount: p.amount, grade: p.grade });
+        synced++;
+      } catch {}
+    }
+    localStorage.removeItem("jemareen_pending");
+    setPendingPayments([]);
+    setSyncingOffline(false);
+    if (synced) showToast(`${synced} offline payment${synced>1?"s":""} synced!`);
+  };
+
+  // ── DELETE PAYMENT ───────────────────────────────────────────────────────
+  const handleDeletePayment = async (paymentId, paymentData) => {
+    try {
+      await deleteDoc(doc(db,"payments",paymentId));
+      await audit("PAYMENT_DELETED", { learnerName: paymentData.learnerName, amount: paymentData.amount, term: paymentData.term });
+      setDelPayConfirm(null);
+      showToast("Payment removed.");
+    } catch { showToast("Could not delete payment.","err"); }
   };
 
   const generateAIInsight = async () => {
@@ -331,7 +414,7 @@ export default function Dashboard({ user }) {
   ];
 
   return (
-    <div style={{fontFamily:"'Outfit',sans-serif",minHeight:"100vh",background:"#FAF7FD",color:"#1e293b"}}>
+    <div style={{fontFamily:"'Outfit',sans-serif",minHeight:"100vh",background:"#FAF7FD",color:"#1e293b",paddingTop: (!isOnline || pendingPayments.length>0) ? 36 : 0}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;0,800;1,500&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
@@ -379,6 +462,16 @@ export default function Dashboard({ user }) {
         }
         .d-aside{display:none;position:fixed;top:0;left:0;height:100vh;width:224px;background:linear-gradient(180deg,#22073A 0%,#3D1445 45%,#2d0e3d 100%);border-right:none;flex-direction:column;padding:0;z-index:50;overflow-y:auto;box-shadow:4px 0 28px rgba(0,0,0,.22);}
       `}</style>
+
+      {/* OFFLINE / SYNC BANNER */}
+      {(!isOnline || syncingOffline || pendingPayments.length>0) && (
+        <div style={{position:"fixed",top:0,left:0,right:0,zIndex:999,background:syncingOffline?"#7B2D8B":isOnline&&pendingPayments.length>0?"#f59e0b":"#374151",color:"#fff",fontSize:12,fontWeight:600,textAlign:"center",padding:"8px 16px",letterSpacing:".03em"}}>
+          {syncingOffline ? "⟳ Syncing offline payments…" : !isOnline ? `Offline mode — ${pendingPayments.length} payment${pendingPayments.length!==1?"s":""} queued` : `${pendingPayments.length} pending payment${pendingPayments.length!==1?"s":""} — tap to sync`}
+          {isOnline && pendingPayments.length>0 && !syncingOffline && (
+            <button onClick={syncOfflinePayments} style={{marginLeft:10,background:"rgba(255,255,255,.2)",border:"none",borderRadius:6,color:"#fff",fontSize:11,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>Sync Now</button>
+          )}
+        </div>
+      )}
 
       {/* DESKTOP SIDEBAR */}
       <aside className="d-aside">
@@ -677,9 +770,10 @@ export default function Dashboard({ user }) {
                             </div>
                           ))}
                         </div>
-                        <div style={{display:"flex",gap:8}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                           <button className="btn" onClick={()=>{setEditLearner(l);setEditLearnerVals({name:l.name,grade:l.grade,parent:l.parent||"",phone:l.phone||"",email:l.email||""});}} style={{flex:1,background:"#EDE4F5",color:"#7B2D8B",fontSize:12,padding:"9px"}}>Edit</button>
-                          <button className="btn" onClick={()=>setShowReceipt(l)} style={{flex:1,background:"#e0f2fe",color:"#0369a1",fontSize:12,padding:"9px"}}>Receipt</button>
+                          <button className="btn" onClick={()=>{setShowHistory(l);setActiveTab("history");}} style={{flex:1,background:"#e0f2fe",color:"#0369a1",fontSize:12,padding:"9px"}}>History</button>
+                          <button className="btn" onClick={()=>setShowReceipt(l)} style={{flex:1,background:"#f0fdf4",color:"#10b981",fontSize:12,padding:"9px"}}>Receipt</button>
                           <button className="btn" onClick={()=>setDelConfirm(l)} style={{flex:1,background:"#fee2e2",color:"#ef4444",fontSize:12,padding:"9px"}}>Remove</button>
                         </div>
                       </div>
@@ -764,6 +858,100 @@ export default function Dashboard({ user }) {
                 ))}
               </div>
             ))}
+          </div>
+        </>}
+
+        {/* PAYMENT HISTORY (per-learner modal trigger from learner card) */}
+        {activeTab==="history" && showHistory && (() => {
+          const l = enriched.find(x=>x.id===showHistory.id) || showHistory;
+          const allPayments = payments.filter(p=>p.learnerId===l.id).sort((a,b)=>(b.date||"")>(a.date||"")?1:-1);
+          const totalEver = allPayments.reduce((a,p)=>a+(p.amount||0),0);
+          return (
+            <>
+              <button className="btn" onClick={()=>{setShowHistory(null);setActiveTab("learners");}} style={{background:"#F3EDF7",color:"#7B2D8B",marginBottom:14,fontSize:13,padding:"10px 18px"}}>← Back to Learners</button>
+              <div className="card" style={{padding:18,marginBottom:14}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                  <div style={{width:48,height:48,borderRadius:"50%",background:avatarColor(l.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:"#fff"}}>{initials(l.name)}</div>
+                  <div>
+                    <div style={{fontSize:17,fontWeight:800,color:"#1e293b"}}>{l.name}</div>
+                    <div style={{fontSize:12,color:"#94a3b8"}}>{l.grade} · {l.parent||"No parent"} · {l.phone||"No phone"}</div>
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {[["Total Received",fmt(totalEver),"#7B2D8B"],["Payments",allPayments.length+" records","#10b981"]].map(([lab,val,col])=>(
+                    <div key={lab} style={{background:"#F8FAFC",borderRadius:10,padding:"12px",textAlign:"center"}}>
+                      <div style={{fontSize:16,fontWeight:800,color:col}}>{val}</div>
+                      <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>{lab}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {TERMS.map(term=>{
+                const termPays = allPayments.filter(p=>p.term===term);
+                if (!termPays.length) return null;
+                const termTotal = termPays.reduce((a,p)=>a+(p.amount||0),0);
+                const termFee = fees[l.grade]||0;
+                return (
+                  <div key={term} className="card" style={{marginBottom:12,overflow:"hidden"}}>
+                    <div style={{background:"linear-gradient(135deg,#22073A,#3D1445)",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:13,fontWeight:700,color:"#D4A820"}}>{term}</span>
+                      <span style={{fontSize:12,color:"rgba(255,255,255,.7)"}}>{fmt(termTotal)} / {fmt(termFee)}</span>
+                    </div>
+                    {termPays.map((p,i)=>(
+                      <div key={p.id||i} style={{padding:"12px 16px",borderBottom:i<termPays.length-1?"1px solid #f1f5f9":"none",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <div>
+                          <div style={{fontSize:14,fontWeight:700,color:"#1e293b"}}>{fmt(p.amount)}</div>
+                          <div style={{fontSize:11,color:"#94a3b8"}}>{p.date||"—"} · {p.method||"Cash"}{p.notes?` · ${p.notes}`:""}</div>
+                          {p.syncedFromOffline&&<span style={{fontSize:10,background:"#ede4f5",color:"#7B2D8B",borderRadius:99,padding:"1px 7px",fontWeight:600}}>Offline sync</span>}
+                        </div>
+                        <button className="btn" onClick={()=>setDelPayConfirm(p)} style={{background:"#fee2e2",color:"#ef4444",fontSize:11,padding:"6px 12px"}}>Delete</button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              {allPayments.length===0&&<div className="card" style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:14}}>No payment records found.</div>}
+            </>
+          );
+        })()}
+
+        {/* AUDIT LOG */}
+        {activeTab==="audit" && <>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>Audit Log</div>
+              <div style={{fontSize:12,color:"#94a3b8",marginTop:2}}>Last {auditLogs.length} actions</div>
+            </div>
+          </div>
+          {auditLogs.length===0&&<div className="card" style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:14}}>No audit events yet.</div>}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {auditLogs.map(log=>{
+              const ts = log.timestamp?.toDate?.();
+              const timeStr = ts ? ts.toLocaleString("en-ZM",{dateStyle:"short",timeStyle:"short"}) : "—";
+              const cfg = {
+                PAYMENT_ADDED:         {label:"Payment Added",      color:"#10b981", bg:"#f0fdf4"},
+                PAYMENT_DELETED:       {label:"Payment Deleted",     color:"#f43f5e", bg:"#fff5f5"},
+                PAYMENT_SYNCED_OFFLINE:{label:"Offline Synced",      color:"#7B2D8B", bg:"#faf5ff"},
+                LEARNER_ADDED:         {label:"Learner Added",       color:"#3b82f6", bg:"#eff6ff"},
+                LEARNER_DELETED:       {label:"Learner Removed",     color:"#f43f5e", bg:"#fff5f5"},
+                LEARNER_EDITED:        {label:"Learner Updated",     color:"#f59e0b", bg:"#fffbeb"},
+                FEES_UPDATED:          {label:"Fees Updated",        color:"#06b6d4", bg:"#ecfeff"},
+              }[log.action] || {label:log.action, color:"#94a3b8", bg:"#f8fafc"};
+              return (
+                <div key={log.id} style={{background:cfg.bg,border:`1px solid ${cfg.color}22`,borderRadius:14,padding:"12px 16px",borderLeft:`4px solid ${cfg.color}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                    <span style={{fontSize:12,fontWeight:700,color:cfg.color,background:cfg.color+"18",borderRadius:99,padding:"2px 10px"}}>{cfg.label}</span>
+                    <span style={{fontSize:11,color:"#94a3b8"}}>{timeStr}</span>
+                  </div>
+                  <div style={{fontSize:13,color:"#1e293b",fontWeight:500,marginBottom:2}}>
+                    {log.details?.learnerName||log.details?.name||""}
+                    {log.details?.amount ? ` — ${fmt(log.details.amount)}` : ""}
+                    {log.details?.grade ? ` (${log.details.grade})` : ""}
+                  </div>
+                  <div style={{fontSize:11,color:"#94a3b8"}}>By {log.performedBy||"—"} · {log.term||""}</div>
+                </div>
+              );
+            })}
           </div>
         </>}
 
@@ -985,6 +1173,25 @@ export default function Dashboard({ user }) {
             <div style={{display:"flex",gap:10,marginTop:20}}>
               <button className="btn" onClick={()=>setEditLearner(null)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
               <button className="btn" onClick={handleEditLearner} style={{background:"#7B2D8B",color:"#fff",flex:2}}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETE PAYMENT CONFIRM ──────────────────────────── */}
+      {delPayConfirm && (
+        <div className="overlay" onClick={()=>setDelPayConfirm(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:360,textAlign:"center"}}>
+            <div className="modal-handle"/>
+            <div style={{color:"#ef4444",display:"flex",justifyContent:"center",marginBottom:14}}><IconWarning size={40}/></div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:800,marginBottom:8}}>Delete Payment?</div>
+            <p style={{fontSize:13,color:"#64748b",marginBottom:8}}>
+              This will permanently remove the <strong>{fmt(delPayConfirm.amount)}</strong> payment recorded on <strong>{delPayConfirm.date}</strong>.
+            </p>
+            <p style={{fontSize:12,color:"#94a3b8",marginBottom:22}}>This action cannot be undone and will affect the learner's balance.</p>
+            <div style={{display:"flex",gap:10}}>
+              <button className="btn" onClick={()=>setDelPayConfirm(null)} style={{background:"#F3EDF7",color:"#64748b",flex:1}}>Cancel</button>
+              <button className="btn" onClick={()=>handleDeletePayment(delPayConfirm.id, delPayConfirm)} style={{background:"#ef4444",color:"#fff",flex:1}}>Yes, Delete</button>
             </div>
           </div>
         </div>
