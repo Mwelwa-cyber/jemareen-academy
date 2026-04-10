@@ -4,12 +4,13 @@ import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBzvvey5zMXdm8DPaOo0lI5OUyU6MqXta0",
-  authDomain: "jemareen-academy.firebaseapp.com",
-  projectId: "jemareen-academy",
-  storageBucket: "jemareen-academy.firebasestorage.app",
-  messagingSenderId: "125065148800",
-  appId: "1:125065148800:web:3ecbe2d943c28e8a2b6965"
+  apiKey: "AIzaSyBlrCoo2GF_p-LpHZn2NqHWllT2eaw62bA",
+  authDomain: "examsprepzambia.firebaseapp.com",
+  databaseURL: "https://examsprepzambia-default-rtdb.firebaseio.com",
+  projectId: "examsprepzambia",
+  storageBucket: "examsprepzambia.firebasestorage.app",
+  messagingSenderId: "325628669031",
+  appId: "1:325628669031:web:0f790afb274372af9c38c2"
 };
 
 const app = initializeApp(firebaseConfig);
