@@ -1,12 +1,13 @@
 {
-  "name": "jemareen-academy",
+  "name": "examprep-zambia",
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "firebase": "10.7.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "react-scripts": "5.0.1",
-    "firebase": "10.7.0"
+    "react-router-dom": "^6.22.0",
+    "react-scripts": "5.0.1"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -14,14 +15,22 @@
     "test": "react-scripts test"
   },
   "eslintConfig": {
-    "extends": ["react-app"],
+    "extends": [
+      "react-app"
+    ],
     "rules": {
       "no-unused-vars": "warn",
       "react-hooks/exhaustive-deps": "warn"
     }
   },
   "browserslist": {
-    "production": [">0.2%", "not dead", "not op_mini all"],
-    "development": ["last 1 chrome version"]
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version"
+    ]
   }
 }
